@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Home,
@@ -31,8 +31,14 @@ import {
   CheckCircle2,
   CircleHelp,
   Maximize2,
+  HardDrive,
+  LogOut,
+  ListPlus,
 } from "lucide-react";
-import { tracks, playlists, img, formatTime } from "./data";
+import { tracks as demoTracks, playlists, img, formatTime } from "./data";
+import AccountGate, { useAuth } from "./AccountGate";
+import MyMusic from "./MyMusic";
+import { deviceLibrary } from "./device-library";
 import "./styles.css";
 
 const readSaved = (key, fallback) => {
@@ -189,6 +195,15 @@ function SectionHeading({ eyebrow, title, action, onAction }) {
 }
 
 function App() {
+  const { user, signIn, logout } = useAuth();
+  const device = useMemo(() => deviceLibrary(user?.id || "guest"), [user?.id]);
+  const [localTracks, setLocalTracks] = useState([]);
+  const tracks = [...demoTracks, ...localTracks];
+  const libraryKey = (key) => key + ":" + (user?.id || "guest");
+  const readMySaved = (key, fallback) =>
+    readSaved(libraryKey(key), user ? fallback : readSaved(key, fallback));
+  const playRequest = useRef(0);
+
   const [view, setView] = useState("home");
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState("");
@@ -201,9 +216,9 @@ function App() {
   const [volume, setVolume] = useState(0.7);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState(false);
-  const [liked, setLiked] = useState(() => readSaved("onda-liked", []));
-  const [saved, setSaved] = useState(() => readSaved("onda-saved", ["summer", "focus", "night"]));
-  const [custom, setCustom] = useState(() => readSaved("onda-playlists", []));
+  const [liked, setLiked] = useState(() => readMySaved("onda-liked", []));
+  const [saved, setSaved] = useState(() => readMySaved("onda-saved", ["summer", "focus", "night"]));
+  const [custom, setCustom] = useState(() => readMySaved("onda-playlists", []));
   const [modal, setModal] = useState(null);
   const [playlistName, setPlaylistName] = useState("");
   const [toast, setToast] = useState("");
@@ -225,14 +240,52 @@ function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(""), 3200);
   };
+  const refreshDevice = useCallback(async () => {
+    try {
+      const list = await device.list();
+      setLocalTracks(list);
+      setCurrent((previous) => {
+        const updated = list.find((t) => t.id === previous.id);
+        return updated ? { ...previous, ...updated } : previous;
+      });
+      setQueue((previous) =>
+        previous.map((track) => {
+          const updated = list.find((t) => t.id === track.id);
+          return updated ? { ...track, ...updated } : track;
+        }),
+      );
+    } catch (error) {
+      notify(error.message);
+    }
+  }, [device]);
   useEffect(() => {
-    localStorage.setItem("onda-liked", JSON.stringify(liked));
+    let active = true;
+    const player = audio.current;
+    device
+      .list()
+      .then((list) => {
+        if (active) setLocalTracks(list);
+      })
+      .catch((error) => {
+        if (active) notify(error.message);
+      });
+    return () => {
+      active = false;
+      ++playRequest.current;
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      device.dispose();
+    };
+  }, [device]);
+  useEffect(() => {
+    localStorage.setItem(libraryKey("onda-liked"), JSON.stringify(liked));
   }, [liked]);
   useEffect(() => {
-    localStorage.setItem("onda-saved", JSON.stringify(saved));
+    localStorage.setItem(libraryKey("onda-saved"), JSON.stringify(saved));
   }, [saved]);
   useEffect(() => {
-    localStorage.setItem("onda-playlists", JSON.stringify(custom));
+    localStorage.setItem(libraryKey("onda-playlists"), JSON.stringify(custom));
   }, [custom]);
   useEffect(() => {
     audio.current.volume = volume;
@@ -244,7 +297,7 @@ function App() {
         notify("Pulsa reproducir para comenzar a escuchar.");
       });
     else audio.current.pause();
-  }, [playing, current.id]);
+  }, [playing, current.id, current.audioUrl]);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") {
@@ -278,16 +331,60 @@ function App() {
   const toggleLike = (id) => {
     setLiked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
-  const playTrack = (track, list = tracks) => {
-    if (track.id !== current.id) {
-      audio.current.currentTime = 0;
-      setProgress(0);
-      setDuration(track.duration);
+  const playTrack = async (track, list = tracks) => {
+    const request = ++playRequest.current;
+    try {
+      const audioUrl = track.source === "local" ? await device.audioUrl(track) : undefined;
+      if (request !== playRequest.current) return;
+      if (track.id !== current.id) {
+        audio.current.pause();
+        audio.current.currentTime = 0;
+        setProgress(0);
+        setDuration(track.duration);
+      }
+      setQueue(list);
+      setCurrent({ ...track, audioUrl });
+      setPlaying(true);
+      if (track.id === current.id) audio.current.play().catch(() => setPlaying(false));
+    } catch (error) {
+      setPlaying(false);
+      notify(error.message);
     }
-    setQueue(list);
-    setCurrent(track);
-    setPlaying(true);
-    if (track.id === current.id) audio.current.play().catch(() => setPlaying(false));
+  };
+  const togglePlayback = () => {
+    if (playing) setPlaying(false);
+    else playTrack(current, queue);
+  };
+  const queueTrack = (track) => {
+    if (queue.some((item) => item.id === track.id)) {
+      notify("Esta canción ya está en la cola.");
+      return;
+    }
+    setQueue((previous) => [...previous, track]);
+    setModal(null);
+    notify("Canción añadida a la cola.");
+  };
+  const removeLocalTrack = (track) => {
+    if (current.id === track.id) {
+      ++playRequest.current;
+      audio.current.pause();
+      setPlaying(false);
+      setCurrent(demoTracks[0]);
+      setProgress(0);
+    }
+    setQueue((previous) => previous.filter((item) => item.id !== track.id));
+    setLiked((previous) => previous.filter((id) => id !== track.id));
+    setCustom((previous) =>
+      previous.map((playlist) => ({
+        ...playlist,
+        tracks: playlist.tracks.filter((id) => id !== track.id),
+      })),
+    );
+    setSelected((previous) =>
+      previous
+        ? { ...previous, tracks: previous.tracks.filter((id) => id !== track.id) }
+        : previous,
+    );
   };
   const getTracks = (p) =>
     (p?.tracks || []).map((id) => tracks.find((t) => t.id === id)).filter(Boolean);
@@ -354,15 +451,15 @@ function App() {
         const id = decodeURIComponent(route.slice(9));
         const p =
           id === "liked"
-            ? { ...likedPlaylist, tracks: readSaved("onda-liked", []) }
-            : [...playlists, ...readSaved("onda-playlists", [])].find((p) => p.id === id);
+            ? { ...likedPlaylist, tracks: readMySaved("onda-liked", []) }
+            : [...playlists, ...readMySaved("onda-playlists", [])].find((p) => p.id === id);
         if (p) {
           setSelected(p);
           setView("playlist");
         } else {
           setView("library");
         }
-      } else if (["home", "search", "library"].includes(route)) setView(route);
+      } else if (["home", "search", "library", "device"].includes(route)) setView(route);
       else setView("home");
     };
     restoreRoute();
@@ -407,7 +504,7 @@ function App() {
     };
   }, [modal]);
   const searchMatches = tracks.filter((t) =>
-    `${t.title} ${t.artist} ${t.album} ${t.mood}`.toLowerCase().includes(query.toLowerCase()),
+    `${t.title} ${t.artist} ${t.album} ${t.mood || ""}`.toLowerCase().includes(query.toLowerCase()),
   );
   const playlistMatches = allPlaylists.filter((p) =>
     `${p.title} ${p.subtitle}`.toLowerCase().includes(query.toLowerCase()),
@@ -447,6 +544,13 @@ function App() {
             onClick={() => navigate("library")}
           >
             <Library size={23} />
+          </IconButton>
+          <IconButton
+            title="Archivos de este dispositivo"
+            className={view === "device" ? "rail-active" : ""}
+            onClick={() => navigate("device")}
+          >
+            <HardDrive size={23} />
           </IconButton>
         </nav>
         <div className="rail-bottom">
@@ -555,6 +659,16 @@ function App() {
               </button>
             ))}
         </div>
+        <button className="local-sidebar-button" onClick={() => navigate("device")}>
+          <HardDrive size={18} />
+          <span>En este dispositivo</span>
+          <small>{localTracks.length}</small>
+        </button>
+        {!user && (
+          <p className="local-guest-note">
+            Escuchando sin cuenta. <button onClick={signIn}>Iniciar sesión</button>
+          </p>
+        )}
         <div className="library-invite">
           <div className="invite-symbol">
             <Disc3 size={22} />
@@ -667,8 +781,29 @@ function App() {
               </button>
               {menu === "profile" && (
                 <div className="dropdown profile-menu">
-                  <strong>Hola, Mauricio</strong>
-                  <span>Tu espacio de música</span>
+                  <strong className="profile-email">{user?.email || "Tu espacio local"}</strong>
+                  <span>{user ? "Tu cuenta de Onda" : "Escuchando sin cuenta"}</span>
+                  {user ? (
+                    <button
+                      onClick={() => {
+                        setMenu(null);
+                        logout();
+                      }}
+                    >
+                      <LogOut size={16} />
+                      Cerrar sesión
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setMenu(null);
+                        signIn();
+                      }}
+                    >
+                      <Headphones size={16} />
+                      Iniciar sesión o registrarte
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setMenu(null);
@@ -853,6 +988,24 @@ function App() {
             </div>
           )}
 
+          {view === "device" && (
+            <MyMusic
+              tracks={localTracks}
+              library={device}
+              onRefresh={refreshDevice}
+              onPlay={(track, list) => {
+                if (current.id === track.id && playing) setPlaying(false);
+                else playTrack(track, list);
+              }}
+              onLike={toggleLike}
+              liked={liked}
+              current={current}
+              playing={playing}
+              notify={notify}
+              onRemove={removeLocalTrack}
+              onOptions={(track) => setModal({ type: "add", track })}
+            />
+          )}
           {view === "search" && (
             <div className="page-content search-page">
               <span className="eyebrow">DEJA QUE LA CURIOSIDAD SUENE</span>
@@ -1218,7 +1371,7 @@ function App() {
             <button
               className="main-play"
               aria-label={playing ? "Pausar" : "Reproducir"}
-              onClick={() => setPlaying(!playing)}
+              onClick={togglePlayback}
             >
               {playing ? (
                 <Pause size={19} fill="currentColor" />
@@ -1314,10 +1467,14 @@ function App() {
           <Library size={21} />
           Biblioteca
         </button>
+        <button className={view === "device" ? "active" : ""} onClick={() => navigate("device")}>
+          <HardDrive size={21} />
+          Mi música
+        </button>
       </nav>
       <audio
         ref={audio}
-        src={`/audio/${current.audio}.mp3`}
+        src={current.audioUrl || `${import.meta.env.BASE_URL}audio/${current.audio}.mp3`}
         preload="metadata"
         onTimeUpdate={() => setProgress(audio.current.currentTime)}
         onLoadedMetadata={() => {
@@ -1385,6 +1542,21 @@ function App() {
                 <p>
                   {modal.track.title} · {modal.track.artist}
                 </p>
+                <div className="track-extra-actions">
+                  <button className="secondary-button" onClick={() => queueTrack(modal.track)}>
+                    <ListPlus size={17} />
+                    Añadir a la cola
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      toggleLike(modal.track.id);
+                      setModal(null);
+                    }}
+                  >
+                    {liked.includes(modal.track.id) ? "Quitar de me gusta" : "Guardar en me gusta"}
+                  </button>
+                </div>
                 {custom.length ? (
                   custom.map((p) => (
                     <button
@@ -1456,4 +1628,8 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <AccountGate>
+    <App />
+  </AccountGate>,
+);

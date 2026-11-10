@@ -122,6 +122,9 @@ export const playlists = [
     tracks: ["drift", "golden", "dunes"],
   },
 ];
-export const img = (cover) => `/images/${cover}.jpg`;
+export const img = (cover) =>
+  /^data:image\/(jpeg|png|webp);base64,/.test(cover || "")
+    ? cover
+    : `${import.meta.env.BASE_URL}images/${cover || "night"}.jpg`;
 export const formatTime = (seconds) =>
   `${Math.floor((seconds || 0) / 60)}:${String(Math.floor((seconds || 0) % 60)).padStart(2, "0")}`;

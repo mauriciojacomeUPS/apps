@@ -1,0 +1,125 @@
+.account-loading {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent, #c1f68b);
+  background: #121713;
+}
+.account-loading p {
+  color: #a2ae98;
+  font-size: 13px;
+}
+.account-mark {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--accent);
+  margin-bottom: 28px;
+}
+.account-mark span {
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -2px;
+}
+.account-dialog > p {
+  font-size: 12px;
+  color: #a8b59f;
+  line-height: 1.8;
+  margin: 18px 0;
+}
+.account-dialog .account-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #10170f;
+  border: 1px solid #ffffff1a;
+  border-radius: 6px;
+  padding: 0 12px;
+  margin-bottom: 18px;
+  color: #829477;
+}
+.account-dialog .account-input:focus-within {
+  border-color: #b9ee87;
+}
+.account-input input {
+  width: 100%;
+  height: 43px;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: #f0f3eb;
+  font-size: 12px;
+}
+.account-input input:focus-visible {
+  outline: 0;
+}
+.account-dialog form {
+  margin-top: 24px;
+}
+.account-dialog .account-submit {
+  width: 100%;
+  margin-top: 12px;
+  padding: 13px 19px;
+}
+.account-switch {
+  display: block;
+  margin: 24px auto 0;
+  text-align: center;
+  font-size: 11px;
+  color: #a7b89b;
+}
+.account-switch:hover {
+  color: var(--accent);
+}
+.account-error {
+  font-size: 11px !important;
+  line-height: 1.7;
+  color: #ffc0ac !important;
+  background: #d05d2915;
+  border: 1px solid #d0805030;
+  padding: 10px;
+  border-radius: 5px;
+}
+.account-notice {
+  font-size: 11px;
+  color: #c4e9a7;
+  line-height: 1.7;
+  padding: 10px;
+  border: 1px solid #a8d57d25;
+  border-radius: 5px;
+}
+.account-submit:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.account-session-warning {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 18px;
+  background: #3b4225;
+  color: #e0e8c5;
+  font-size: 11px;
+}
+.account-session-warning button {
+  text-decoration: underline;
+  font-size: 11px;
+}
+.account-backdrop {
+  z-index: 120;
+}
+.account-dialog .eyebrow {
+  margin-top: 0;
+}
+.account-dialog .account-input input {
+  padding: 0;
+}

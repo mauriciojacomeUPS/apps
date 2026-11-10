@@ -1,47 +1,104 @@
 # Onda
 
-Una aplicación de música en español, inspirada en las experiencias de streaming, con identidad visual propia. Construida con React, Vite y Lucide.
+Aplicación de música en español inspirada en los patrones de navegación, biblioteca, playlists y cola de Spotify, con una diferencia central: reproduce la música que seleccionas de tu propio dispositivo.
+
+## Cómo funciona
+
+- La web se puede publicar en GitHub Pages.
+- Supabase se utiliza **solo para registro, inicio de sesión y cierre de sesión**.
+- Los archivos de audio y sus metadatos se conservan localmente en IndexedDB, dentro del navegador.
+- Favoritos y playlists se guardan localmente, separados por cuenta. La cuenta no transfiere archivos ni playlists a otros dispositivos.
+- No se sube música a Supabase, GitHub ni a otro servidor.
+- Puedes usar la biblioteca local sin iniciar sesión. El acceso con cuenta se habilita al configurar Supabase.
+
+Selecciona archivos o una carpeta en «En este dispositivo». La aplicación solo puede leer lo que selecciones. Se conserva una copia local para poder reproducirla después de recargar; no modifica ni borra tus archivos originales. Los cambios posteriores en el archivo original no se sincronizan automáticamente.
 
 ## Desarrollo
 
-Requiere Node.js 24.22.1 o una versión compatible con Vite 6.
+Requiere Node.js 24.
 
 ```sh
 npm ci
 npm run dev -- --port 5173
 ```
 
-El servidor escucha en todas las interfaces. Para generar y servir una compilación de producción:
+Para compilar:
 
 ```sh
 npm run build
 npm run preview -- --port 4173
 ```
 
-## Qué puedes hacer
+## GitHub Pages
 
-- Explorar seis playlists y buscar canciones, artistas, álbumes o estados de ánimo.
-- Reproducir audio local, pausar, avanzar, retroceder, cambiar posición y volumen, repetir y activar aleatorio.
-- Consultar la cola y cambiar la canción desde ella.
-- Guardar canciones en «Tus me gusta» y playlists en la biblioteca.
-- Crear playlists y añadirles canciones desde el menú de opciones de cada canción.
-- Compartir enlaces a playlists del catálogo y abrirlos directamente.
-- Usar Ctrl/Cmd + K para buscar y Escape para cerrar diálogos.
+El workflow manual de `.github/workflows/pages.yml` compila y publica `main`. Actualizar la rama no publica la web automáticamente.
 
-Los favoritos, la biblioteca y las playlists personales se conservan en `localStorage`, en este navegador. Las playlists personales no se sincronizan entre dispositivos; sus enlaces requieren que la playlist exista en el navegador de destino.
+1. En GitHub, abre **Settings → Pages → Build and deployment → Source → GitHub Actions**.
+2. Para habilitar las cuentas, configura las variables de repositorio de la sección siguiente.
+3. Ejecuta manualmente el workflow **Publish Onda to GitHub Pages** cuando quieras publicar.
+4. Confirma que el job de publicación termina correctamente. La página pública no está publicada hasta que ese job finalice.
+
+El workflow usa la ruta `/apps/` para este repositorio. Para ejecutar una compilación local equivalente:
+
+```sh
+npm run build -- --base=/apps/
+npm run preview -- --port 4173 --base=/apps/
+```
+
+La navegación utiliza rutas hash para no depender de reescrituras de servidor.
+
+## Configurar Supabase solo para usuarios
+
+No hacen falta tablas de canciones, buckets, migraciones de biblioteca ni claves privadas de servidor.
+
+1. Crea un proyecto en Supabase y habilita el proveedor **Email** en Authentication.
+2. En **Authentication → URL Configuration**, establece como Site URL la URL de GitHub Pages y añádela a Redirect URLs. Para desarrollo, añade también `http://localhost:5173/`.
+3. En GitHub, abre **Settings → Secrets and variables → Actions → Variables** y crea:
+   - `VITE_SUPABASE_URL`: URL de tu proyecto.
+   - `VITE_SUPABASE_ANON_KEY`: clave **Publishable** o la clave pública **anon**.
+4. Vuelve a ejecutar el workflow de publicación, porque estas variables se incluyen durante la compilación.
+5. Si la confirmación de correo está habilitada, cada usuario debe confirmar su correo antes de entrar. Configura el servicio de correo y sus límites en Supabase antes de ofrecer registro público a muchos usuarios.
+
+**Nunca uses una clave secret o service_role en una variable `VITE_*`.** Las variables `VITE_*` se incluyen en el JavaScript público. La aplicación rechaza claves que no parezcan públicas.
+
+Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables públicas. Sin ellas se puede seguir utilizando la biblioteca local y las cuentas muestran un estado de configuración pendiente.
+
+## Biblioteca local
+
+- MP3, M4A, FLAC, WAV, OGG, OPUS y AAC; la reproducción de cada formato depende del navegador y de sus códecs. MP3 ofrece la compatibilidad más amplia.
+- Hasta 100 MB por archivo.
+- Los duplicados se detectan por SHA-256 del contenido.
+- Los archivos no musicales de una carpeta se omiten; los archivos de audio ilegibles se identifican en el resultado de importación.
+- Puedes buscar, reproducir, editar títulos/artistas/álbumes, guardar favoritos y añadir canciones a playlists y a la cola.
+- Quitar una canción de la biblioteca elimina la copia del navegador, nunca el archivo original.
+- El navegador puede limitar o borrar su almacenamiento local, especialmente en navegación privada o si falta espacio. Conserva tus originales para volver a seleccionar la colección.
+- Cada navegador, perfil y dispositivo tiene su propia biblioteca. Iniciar sesión en otro dispositivo no descarga tus archivos.
+- Esta versión no convierte formatos de audio ni necesita un backend de archivos.
 
 ## Contenido de muestra
 
-Las tres pistas instrumentales son composiciones sintetizadas originales, incluidas localmente en `public/audio`. Las seis canciones del catálogo reutilizan estas tres pistas. Las fotografías de Unsplash y las fuentes se sirven localmente. La aplicación no necesita credenciales ni servicios externos para reproducir el contenido.
+El catálogo inicial contiene seis títulos que reutilizan tres instrumentales originales de muestra. Las fotografías, fuentes y audio de la demo se sirven desde el sitio; los archivos que selecciona el usuario permanecen locales. Créditos en `public/ASSETS.md`.
 
-Esta versión es una demo funcional de frontend: no incluye cuentas, pagos, backend ni el catálogo de Spotify. No está afiliada a Spotify.
+## Referencias y REA
 
-## REA
+Consulta `docs/spotify-reference.md` para las fuentes oficiales y los patrones revisados. Onda es una aplicación independiente y no está afiliada a Spotify.
 
-REA se encuentra en `/workspace/rea`, separado del proyecto. Para analizar el código estático:
+REA se encuentra separado en `/workspace/rea`. Un análisis estático local se puede ejecutar con:
 
 ```sh
 node /workspace/rea/scripts/rea.mjs analyze-javascript-application /workspace/apps/src --json
 ```
 
-La CLI funciona en este entorno; los motores nativos Ghidra/IDA no están instalados.
+El análisis estático no sustituye las pruebas del navegador ni verifica un proyecto real de Supabase.
+
+## Verificación
+
+```sh
+npm test
+npx playwright install chromium
+npm run test:e2e
+```
+
+Las pruebas de navegador usan Chromium del sistema si está disponible, o el navegador instalado por Playwright. Puedes seleccionar un ejecutable con `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Las pruebas incluyen la ruta `/apps/`, reproducción real, importación de carpetas, persistencia, duplicados y limpieza de referencias al quitar canciones.
+
+La prueba de cuentas simula el servicio de autenticación de Supabase para verificar la integración y el cambio entre bibliotecas locales. No valida una conexión real a un proyecto ni el envío de correos; eso requiere configurar tu proyecto.
