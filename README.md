@@ -75,6 +75,14 @@ Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables
 - Cada navegador, perfil y dispositivo tiene su propia biblioteca. Iniciar sesión en otro dispositivo no descarga tus archivos.
 - El reproductor usa los formatos que admite el navegador.
 
+## Playlists y cola
+
+En una playlist personal, el menú de opciones permite renombrar, crear una copia o eliminarla con confirmación. Las flechas de cada canción cambian su orden; su menú permite quitarla de la lista sin borrar el archivo local. El nombre y el orden se conservan en este navegador, separados por cuenta.
+
+La cola muestra las canciones pendientes junto a lo que suena ahora. Puedes añadir varias veces una canción, subir o bajar cada entrada y quitarla individualmente. «Vaciar cola» pide confirmación y conserva la canción actual. Al terminar la última canción, la reproducción se detiene salvo que actives «Repetir canción».
+
+Los patrones de referencia y los límites de la observación de Spotify están documentados en [la revisión con REA](docs/rea-spotify-observations.md).
+
 ## Descargas y conversión en Onda local
 
 En **En este dispositivo → Descargas y conversión**, pega un enlace a un video o una playlist de YouTube, o elige un archivo de audio o video. Selecciona MP3, M4A, FLAC o WAV y guarda el resultado. Puedes añadir un audio individual directamente a la biblioteca. Para una playlist, guarda el ZIP, extráelo y selecciona la carpeta resultante en Onda. Si YouTube omite algún video, el ZIP incluye un informe.

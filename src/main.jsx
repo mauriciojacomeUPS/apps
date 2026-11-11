@@ -34,11 +34,24 @@ import {
   HardDrive,
   LogOut,
   ListPlus,
+  ArrowUp,
+  ArrowDown,
+  Pencil,
+  Copy,
+  Trash2,
 } from "lucide-react";
 import { tracks as demoTracks, playlists, img, formatTime } from "./data";
 import AccountGate, { useAuth } from "./AccountGate";
 import MyMusic from "./MyMusic";
 import { deviceLibrary } from "./device-library";
+import QueuePanel from "./QueuePanel";
+import {
+  makeQueue,
+  activeQueueIndex,
+  moveUpcoming,
+  clearUpcoming,
+  shuffleUpcoming,
+} from "./player-queue";
 import "./styles.css";
 
 const readSaved = (key, fallback) => {
@@ -92,13 +105,18 @@ function TrackRows({
   playTrack,
   toggleLike,
   setModal,
+  playlistId,
+  onReorder,
 }) {
   return (
-    <div className={`track-table ${compact ? "compact" : ""}`}>
+    <div
+      className={`track-table ${compact ? "compact" : ""} ${onReorder ? "editable-playlist" : ""}`}
+    >
       <div className="track-heading">
         <span>#</span>
         <span>TÍTULO</span>
         <span className="album-col">ÁLBUM</span>
+        {onReorder && <span aria-label="Orden de canciones" />}
         <span />
         <Clock3 size={15} />
       </div>
@@ -134,6 +152,24 @@ function TrackRows({
             </span>
           </button>
           <span className="album-col">{track.album}</span>
+          {onReorder && (
+            <div className="track-order-controls">
+              <IconButton
+                title={`Subir ${track.title} en la playlist`}
+                disabled={i === 0}
+                onClick={() => onReorder(track.id, -1)}
+              >
+                <ArrowUp size={15} />
+              </IconButton>
+              <IconButton
+                title={`Bajar ${track.title} en la playlist`}
+                disabled={i === list.length - 1}
+                onClick={() => onReorder(track.id, 1)}
+              >
+                <ArrowDown size={15} />
+              </IconButton>
+            </div>
+          )}
           <IconButton
             title={
               liked.includes(track.id)
@@ -149,7 +185,7 @@ function TrackRows({
             {formatTime(track.duration)}
             <IconButton
               title={`Opciones de ${track.title}`}
-              onClick={() => setModal({ type: "add", track })}
+              onClick={() => setModal({ type: "add", track, playlistId })}
             >
               <MoreHorizontal size={18} />
             </IconButton>
@@ -198,19 +234,21 @@ function App() {
   const { user, signIn, logout } = useAuth();
   const device = useMemo(() => deviceLibrary(user?.id || "guest"), [user?.id]);
   const [localTracks, setLocalTracks] = useState([]);
-  const tracks = [...demoTracks, ...localTracks];
+  const tracks = useMemo(() => [...demoTracks, ...localTracks], [localTracks]);
+  const tracksById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
   const libraryKey = (key) => key + ":" + (user?.id || "guest");
   const readMySaved = (key, fallback) =>
     readSaved(libraryKey(key), user ? fallback : readSaved(key, fallback));
   const playRequest = useRef(0);
+  const initialQueue = useMemo(() => makeQueue(demoTracks), []);
 
   const [view, setView] = useState("home");
-  const [selected, setSelected] = useState(null);
+  const [selectedRecord, setSelected] = useState(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("Todo");
-  const [current, setCurrent] = useState(tracks[0]);
+  const [current, setCurrent] = useState(initialQueue[0]);
   const [playing, setPlaying] = useState(false);
-  const [queue, setQueue] = useState(tracks);
+  const [queue, setQueue] = useState(initialQueue);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(45.740408);
   const [volume, setVolume] = useState(0.7);
@@ -298,7 +336,7 @@ function App() {
         if (error.name === "NotAllowedError") notify("Pulsa reproducir para comenzar a escuchar.");
       });
     else audio.current.pause();
-  }, [playing, current.id, current.audioUrl]);
+  }, [playing, current.id, current.queueId, current.audioUrl]);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") {
@@ -337,16 +375,23 @@ function App() {
     try {
       const audioUrl = track.source === "local" ? await device.audioUrl(track) : undefined;
       if (request !== playRequest.current) return;
-      if (track.id !== current.id) {
+      const existing = track.queueId && list.some((entry) => entry.queueId === track.queueId);
+      let nextQueue = existing ? list : makeQueue(list);
+      let entry = existing ? track : nextQueue.find((item) => item.id === track.id);
+      if (!entry) {
+        entry = makeQueue([track])[0];
+        nextQueue = [entry, ...nextQueue];
+      }
+      if (shuffle && !existing) nextQueue = shuffleUpcoming(nextQueue, entry);
+      if (entry.queueId !== current.queueId) {
         audio.current.pause();
         audio.current.currentTime = 0;
         setProgress(0);
         setDuration(track.duration);
       }
-      setQueue(list);
-      setCurrent({ ...track, audioUrl });
+      setQueue(nextQueue);
+      setCurrent({ ...entry, audioUrl });
       setPlaying(true);
-      if (track.id === current.id) audio.current.play().catch(() => setPlaying(false));
     } catch (error) {
       setPlaying(false);
       notify(error.message);
@@ -357,11 +402,8 @@ function App() {
     else playTrack(current, queue);
   };
   const queueTrack = (track) => {
-    if (queue.some((item) => item.id === track.id)) {
-      notify("Esta canción ya está en la cola.");
-      return;
-    }
-    setQueue((previous) => [...previous, track]);
+    const [entry] = makeQueue([track]);
+    setQueue((previous) => [...previous, entry]);
     setModal(null);
     notify("Canción añadida a la cola.");
   };
@@ -370,7 +412,7 @@ function App() {
       ++playRequest.current;
       audio.current.pause();
       setPlaying(false);
-      setCurrent(demoTracks[0]);
+      setCurrent(initialQueue[0]);
       setProgress(0);
     }
     setQueue((previous) => previous.filter((item) => item.id !== track.id));
@@ -381,26 +423,29 @@ function App() {
         tracks: playlist.tracks.filter((id) => id !== track.id),
       })),
     );
-    setSelected((previous) =>
-      previous
-        ? { ...previous, tracks: previous.tracks.filter((id) => id !== track.id) }
-        : previous,
-    );
   };
-  const getTracks = (p) =>
-    (p?.tracks || []).map((id) => tracks.find((t) => t.id === id)).filter(Boolean);
+  const getTracks = (p) => (p?.tracks || []).map((id) => tracksById.get(id)).filter(Boolean);
   const playPlaylist = (p) => {
     const list = getTracks(p);
     if (list.length) playTrack(list[0], list);
     else notify("Añade canciones desde el menú de una canción.");
   };
   const step = (direction) => {
-    if (!queue.length) return;
-    const index = queue.findIndex((t) => t.id === current.id);
-    const next = shuffle
-      ? (index + 1 + Math.floor(Math.random() * Math.max(1, queue.length - 1))) % queue.length
-      : (index + direction + queue.length) % queue.length;
+    const next = activeQueueIndex(queue, current) + direction;
+    if (next < 0) {
+      audio.current.currentTime = 0;
+      setProgress(0);
+      return;
+    }
+    if (next >= queue.length) {
+      setPlaying(false);
+      return;
+    }
     playTrack(queue[next], queue);
+  };
+  const toggleShuffle = () => {
+    setShuffle(!shuffle);
+    if (!shuffle) setQueue((previous) => shuffleUpcoming(previous, current));
   };
   const savePlaylist = (p) => {
     setSaved((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
@@ -409,7 +454,7 @@ function App() {
     e.preventDefault();
     if (!playlistName.trim()) return;
     const p = {
-      id: `custom-${Date.now()}`,
+      id: `custom-${crypto.randomUUID()}`,
       title: playlistName.trim(),
       subtitle: "Tu selección. Tu propio ritmo.",
       cover: "night",
@@ -428,7 +473,6 @@ function App() {
     if (playlist.tracks.includes(track.id)) return notify("Esta canción ya está en la playlist.");
     const next = { ...playlist, tracks: [...playlist.tracks, track.id] };
     setCustom(custom.map((p) => (p.id === playlist.id ? next : p)));
-    if (selected?.id === playlist.id) setSelected(next);
     setModal(null);
     notify(`Añadida a ${playlist.title}`);
   };
@@ -441,6 +485,70 @@ function App() {
     color: "#7564a8",
     tracks: liked,
     tag: "HECHO POR TI",
+  };
+  const selected =
+    selectedRecord?.id === "liked"
+      ? likedPlaylist
+      : selectedRecord?.id.startsWith("custom-")
+        ? custom.find((p) => p.id === selectedRecord.id) || null
+        : selectedRecord;
+  const selectedTracks = getTracks(selected);
+  const editablePlaylist = selected?.id.startsWith("custom-");
+  const renamePlaylist = (event) => {
+    event.preventDefault();
+    const name = modal.name.trim();
+    if (!name) return;
+    setCustom((previous) =>
+      previous.map((p) => (p.id === modal.playlistId ? { ...p, title: name, art: name } : p)),
+    );
+    setModal(null);
+    notify("Nombre de playlist actualizado.");
+  };
+  const duplicatePlaylist = () => {
+    const name = `${selected.title} (copia)`.slice(0, 60);
+    const copy = {
+      ...selected,
+      id: `custom-${crypto.randomUUID()}`,
+      title: name,
+      art: name,
+      tracks: [...selected.tracks],
+    };
+    setCustom((previous) => [...previous, copy]);
+    setSaved((previous) => [...previous, copy.id]);
+    openPlaylist(copy);
+    notify("Copia guardada en tu biblioteca.");
+  };
+  const deletePlaylist = () => {
+    const id = modal.playlistId;
+    setCustom((previous) => previous.filter((p) => p.id !== id));
+    setSaved((previous) => previous.filter((item) => item !== id));
+    setSelected(null);
+    setModal(null);
+    navigate("library");
+    notify("Playlist eliminada. Tus archivos siguen en el dispositivo.");
+  };
+  const removePlaylistTrack = () => {
+    const { playlistId, track } = modal;
+    setCustom((previous) =>
+      previous.map((p) =>
+        p.id === playlistId ? { ...p, tracks: p.tracks.filter((id) => id !== track.id) } : p,
+      ),
+    );
+    setModal(null);
+    notify("Canción quitada de la playlist.");
+  };
+  const reorderPlaylist = (trackId, direction) => {
+    setCustom((previous) =>
+      previous.map((p) => {
+        if (p.id !== selected.id) return p;
+        const index = p.tracks.indexOf(trackId),
+          target = index + direction;
+        if (index < 0 || target < 0 || target >= p.tracks.length) return p;
+        const ids = [...p.tracks];
+        [ids[index], ids[target]] = [ids[target], ids[index]];
+        return { ...p, tracks: ids };
+      }),
+    );
   };
   useEffect(() => {
     window.history.replaceState({ ...window.history.state, ondaIndex: 0 }, "");
@@ -1183,11 +1291,12 @@ function App() {
                       {selected.id.startsWith("custom") || selected.id === "liked" ? "Tú" : "Onda"}
                     </strong>
                     <span>·</span>
-                    <span>
-                      {(selected.id === "liked" ? liked : selected.tracks).length} canciones
-                    </span>
+                    <span>{selectedTracks.length} canciones</span>
                     <span>·</span>
-                    <span>Sonidos originales de muestra</span>
+                    <span className="playlist-summary-time">
+                      {formatTime(selectedTracks.reduce((sum, track) => sum + track.duration, 0))}{" "}
+                      de música
+                    </span>
                   </div>
                 </div>
               </section>
@@ -1221,18 +1330,70 @@ function App() {
                     title="Compartir playlist"
                     onClick={() => {
                       navigator.clipboard
-                        ?.writeText(`${window.location.origin}/#playlist/${selected.id}`)
+                        ?.writeText(
+                          new URL(
+                            `${import.meta.env.BASE_URL}#playlist/${selected.id}`,
+                            window.location.origin,
+                          ).href,
+                        )
                         .then(() => notify("Enlace de playlist copiado."))
                         .catch(() => notify("No se pudo copiar el enlace en este navegador."));
                     }}
                   >
                     <ArrowUpRight size={24} />
                   </IconButton>
+                  <div className="playlist-actions" onClick={(event) => event.stopPropagation()}>
+                    <IconButton
+                      title="Opciones de playlist"
+                      onClick={() => setMenu(menu === "playlist" ? null : "playlist")}
+                    >
+                      <MoreHorizontal size={25} />
+                    </IconButton>
+                    {menu === "playlist" && (
+                      <div className="dropdown playlist-menu">
+                        {editablePlaylist && (
+                          <button
+                            onClick={() => {
+                              setMenu(null);
+                              setModal({
+                                type: "rename-playlist",
+                                playlistId: selected.id,
+                                name: selected.title,
+                              });
+                            }}
+                          >
+                            <Pencil size={15} />
+                            Renombrar playlist
+                          </button>
+                        )}
+                        <button onClick={duplicatePlaylist}>
+                          <Copy size={15} />
+                          Crear una copia
+                        </button>
+                        {editablePlaylist && (
+                          <button
+                            className="danger-action"
+                            onClick={() => {
+                              setMenu(null);
+                              setModal({
+                                type: "delete-playlist",
+                                playlistId: selected.id,
+                                name: selected.title,
+                              });
+                            }}
+                          >
+                            <Trash2 size={15} />
+                            Eliminar playlist
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <span className="playlist-list-label">
                     Lista <ListMusic size={17} />
                   </span>
                 </div>
-                {getTracks(selected.id === "liked" ? likedPlaylist : selected).length ? (
+                {selectedTracks.length ? (
                   <TrackRows
                     current={current}
                     playing={playing}
@@ -1241,7 +1402,9 @@ function App() {
                     playTrack={playTrack}
                     toggleLike={toggleLike}
                     setModal={setModal}
-                    list={getTracks(selected.id === "liked" ? likedPlaylist : selected)}
+                    list={selectedTracks}
+                    playlistId={selected.id}
+                    onReorder={editablePlaylist ? reorderPlaylist : undefined}
                   />
                 ) : (
                   <div className="empty-state">
@@ -1286,44 +1449,20 @@ function App() {
       </div>
 
       {showQueue && (
-        <aside className="queue-panel">
-          <div className="queue-heading">
-            <h2>A continuación</h2>
-            <IconButton title="Cerrar cola" onClick={() => setShowQueue(false)}>
-              <X size={20} />
-            </IconButton>
-          </div>
-          <span className="eyebrow">AHORA SUENA</span>
-          <img
-            className="queue-cover"
-            src={img(current.cover)}
-            alt={`Portada de ${current.album}`}
-          />
-          <h3>{current.title}</h3>
-          <p>{current.artist}</p>
-          <div className="queue-tracklist">
-            <h4>
-              En tu cola <span>{queue.length}</span>
-            </h4>
-            {queue.map((t) => (
-              <button
-                className={`queue-item ${t.id === current.id ? "current" : ""}`}
-                key={t.id}
-                onClick={() => playTrack(t, queue)}
-              >
-                <img src={img(t.cover)} alt="" />
-                <span>
-                  <strong>{t.title}</strong>
-                  <small>{t.artist}</small>
-                </span>
-                {t.id === current.id && <Volume2 size={16} />}
-              </button>
-            ))}
-          </div>
-          <span className="queue-footer">
-            <Headphones size={15} /> Siempre hay una buena canción después.
-          </span>
-        </aside>
+        <QueuePanel
+          queue={queue}
+          current={current}
+          playing={playing}
+          onClose={() => setShowQueue(false)}
+          onPlay={playTrack}
+          onMove={(id, direction) =>
+            setQueue((previous) => moveUpcoming(previous, current, id, direction))
+          }
+          onRemove={(id) =>
+            setQueue((previous) => previous.filter((entry) => entry.queueId !== id))
+          }
+          onClear={() => setModal({ type: "clear-queue" })}
+        />
       )}
 
       <footer className="player">
@@ -1354,7 +1493,7 @@ function App() {
               title="Aleatorio"
               className={shuffle ? "control-active" : ""}
               aria-pressed={shuffle}
-              onClick={() => setShuffle(!shuffle)}
+              onClick={toggleShuffle}
             >
               <Shuffle size={17} />
             </IconButton>
@@ -1380,7 +1519,11 @@ function App() {
                 <Play size={19} fill="currentColor" />
               )}
             </button>
-            <IconButton title="Siguiente canción" onClick={() => step(1)}>
+            <IconButton
+              title="Siguiente canción"
+              disabled={activeQueueIndex(queue, current) + 1 >= queue.length}
+              onClick={() => step(1)}
+            >
               <SkipForward size={18} fill="currentColor" />
             </IconButton>
             <IconButton
@@ -1544,7 +1687,7 @@ function App() {
             {modal.type === "add" && (
               <>
                 <span className="eyebrow">HAZLE UN LUGAR</span>
-                <h2 id="modal-title">Añadir a una playlist</h2>
+                <h2 id="modal-title">Opciones de canción</h2>
                 <p>
                   {modal.track.title} · {modal.track.artist}
                 </p>
@@ -1562,6 +1705,15 @@ function App() {
                   >
                     {liked.includes(modal.track.id) ? "Quitar de me gusta" : "Guardar en me gusta"}
                   </button>
+                  {modal.playlistId?.startsWith("custom-") && (
+                    <button
+                      className="secondary-button danger-action"
+                      onClick={removePlaylistTrack}
+                    >
+                      <X size={17} />
+                      Quitar de esta playlist
+                    </button>
+                  )}
                 </div>
                 {custom.length ? (
                   custom.map((p) => (
@@ -1581,6 +1733,67 @@ function App() {
                 <button className="secondary-button" onClick={() => setModal({ type: "create" })}>
                   <Plus size={17} /> Nueva playlist
                 </button>
+              </>
+            )}
+            {modal.type === "rename-playlist" && (
+              <>
+                <span className="eyebrow">DALE TU PROPIO NOMBRE</span>
+                <h2 id="modal-title">Renombrar playlist</h2>
+                <form onSubmit={renamePlaylist}>
+                  <label htmlFor="rename-playlist">Nombre de la playlist</label>
+                  <input
+                    id="rename-playlist"
+                    value={modal.name}
+                    maxLength={60}
+                    required
+                    onChange={(event) => setModal({ ...modal, name: event.target.value })}
+                  />
+                  <button className="primary-button" type="submit">
+                    Guardar nombre
+                  </button>
+                </form>
+              </>
+            )}
+            {modal.type === "delete-playlist" && (
+              <>
+                <span className="eyebrow">TU BIBLIOTECA</span>
+                <h2 id="modal-title">¿Eliminar esta playlist?</h2>
+                <p className="modal-playlist-copy">
+                  «{modal.name}» desaparecerá de tu biblioteca. Tus canciones y archivos locales se
+                  conservan.
+                </p>
+                <div className="playlist-confirm-actions">
+                  <button className="secondary-button" onClick={() => setModal(null)}>
+                    Conservar playlist
+                  </button>
+                  <button className="primary-button" onClick={deletePlaylist}>
+                    Eliminar playlist
+                  </button>
+                </div>
+              </>
+            )}
+            {modal.type === "clear-queue" && (
+              <>
+                <span className="eyebrow">UN NUEVO ORDEN</span>
+                <h2 id="modal-title">¿Vaciar la cola?</h2>
+                <p className="modal-playlist-copy">
+                  Se quitarán las canciones pendientes. La canción actual seguirá sonando.
+                </p>
+                <div className="playlist-confirm-actions">
+                  <button className="secondary-button" onClick={() => setModal(null)}>
+                    Conservar cola
+                  </button>
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      setQueue((previous) => clearUpcoming(previous, current));
+                      setModal(null);
+                      notify("Cola vaciada. La canción actual se conserva.");
+                    }}
+                  >
+                    Vaciar cola
+                  </button>
+                </div>
               </>
             )}
             {modal.type === "devices" && (
