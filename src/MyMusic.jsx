@@ -16,6 +16,8 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { img, formatTime } from "./data";
+import { localAudioAccept } from "./device-library";
+import MediaTools from "./MediaTools";
 import "./device.css";
 
 const bytesLabel = (bytes) =>
@@ -100,6 +102,7 @@ export default function MyMusic({
               : " canciones añadidas a tu biblioteca."),
         );
       else if (result.duplicates) notify("Estas canciones ya están en tu biblioteca.");
+      return result;
     } catch (e) {
       setError(e.message);
     } finally {
@@ -183,7 +186,7 @@ export default function MyMusic({
         <div className="device-import-copy">
           <h2>{busy ? "Preparando tu música…" : "Hazle espacio a tus favoritos."}</h2>
           <p>Arrastra tus canciones o elige archivos y carpetas.</p>
-          <small>MP3, M4A, FLAC, WAV, OGG, OPUS y AAC · hasta 100 MB por canción</small>
+          <small>MP3, AAC, M4A, M4B, FLAC, WAV, Ogg, Opus, MP4 y WebM de audio · hasta 100 MB por canción</small>
         </div>
         <div className="device-import-actions">
           <button
@@ -205,7 +208,7 @@ export default function MyMusic({
           ref={filesInput}
           type="file"
           multiple
-          accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg,.opus,.aac"
+          accept={localAudioAccept}
           aria-label="Seleccionar canciones locales"
           hidden
           onChange={(event) => {
@@ -247,6 +250,7 @@ export default function MyMusic({
           vuelve a seleccionar los archivos. Los originales permanecen intactos.
         </span>
       </p>
+      <MediaTools importing={busy} onImport={importFiles} />
       {error && !modal && (
         <p className="device-error" role="alert">
           {error}

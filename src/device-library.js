@@ -1,7 +1,27 @@
 const DB_NAME = "onda-device-music-v1";
 let databasePromise;
-const SUPPORTED = new Set(["mp3", "m4a", "flac", "wav", "ogg", "opus", "aac"]);
+const AUDIO_TYPES = new Map([
+  ["mp3", "audio/mpeg"],
+  ["m4a", "audio/mp4"],
+  ["m4b", "audio/mp4"],
+  ["mp4", "audio/mp4"],
+  ["aac", "audio/aac"],
+  ["flac", "audio/flac"],
+  ["wav", "audio/wav"],
+  ["wave", "audio/wav"],
+  ["ogg", "audio/ogg"],
+  ["oga", "audio/ogg"],
+  ["opus", "audio/ogg"],
+  ["webm", "audio/webm"],
+]);
+export const localAudioAccept = ["audio/*", ...Array.from(AUDIO_TYPES.keys(), (ext) => "." + ext)]
+  .join(",");
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
+function audioType(name) {
+  const extension = /\.([^.]+)$/.exec(name)?.[1].toLowerCase();
+  return AUDIO_TYPES.get(extension);
+}
 
 function openDatabase() {
   if (!globalThis.indexedDB)
@@ -68,23 +88,33 @@ export function deviceLibrary(userId = "guest") {
     },
     async importFiles(selection, onProgress = () => {}) {
       const files = [...selection];
-      const { parseBlob } = await import("music-metadata");
+      const { parseBuffer } = await import("music-metadata");
       const result = { added: [], duplicates: 0, skipped: 0, errors: [] };
       for (const [index, file] of files.entries()) {
-        const ext = file.name.split(".").pop().toLowerCase();
-        if (!SUPPORTED.has(ext)) {
+        const mimeType = audioType(file.name);
+        const progress = Math.round(((index + 1) / files.length) * 100);
+        if (!mimeType) {
           result.skipped++;
-          onProgress(Math.round(((index + 1) / files.length) * 100));
+          onProgress(progress);
           continue;
         }
         try {
           if (!file.size || file.size > MAX_FILE_SIZE)
             throw new Error("El límite es 100 MB por canción.");
-          const metadata = await parseBlob(file, { duration: true });
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const metadata = await parseBuffer(
+            bytes,
+            { mimeType, path: file.name },
+            { duration: true },
+          );
+          if (metadata.format.hasVideo) {
+            result.skipped++;
+            continue;
+          }
           const duration = metadata.format.duration;
           if (!Number.isFinite(duration) || duration <= 0 || !metadata.format.numberOfChannels)
             throw new Error("No se reconoció un archivo de audio válido.");
-          const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+          const digest = await crypto.subtle.digest("SHA-256", bytes);
           const id =
             "local-" +
             [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -120,8 +150,9 @@ export function deviceLibrary(userId = "guest") {
                 " canciones se conservaron; libera espacio y vuelve a seleccionar las restantes.",
             );
           result.errors.push(file.name + ": " + error.message);
+        } finally {
+          onProgress(progress);
         }
-        onProgress(Math.round(((index + 1) / files.length) * 100));
       }
       return result;
     },
@@ -132,7 +163,10 @@ export function deviceLibrary(userId = "guest") {
         throw new Error(
           "Este archivo ya no está en la biblioteca del navegador. Vuelve a seleccionarlo.",
         );
-      const url = URL.createObjectURL(record.file);
+      const { file, fileName } = record;
+      const type = audioType(fileName || file.name);
+      const audio = type && type !== file.type ? file.slice(0, file.size, type) : file;
+      const url = URL.createObjectURL(audio);
       urls.set(track.id, url);
       return url;
     },

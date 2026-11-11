@@ -292,9 +292,10 @@ function App() {
   }, [volume]);
   useEffect(() => {
     if (playing)
-      audio.current.play().catch(() => {
+      audio.current.play().catch((error) => {
+        if (error.name === "AbortError") return;
         setPlaying(false);
-        notify("Pulsa reproducir para comenzar a escuchar.");
+        if (error.name === "NotAllowedError") notify("Pulsa reproducir para comenzar a escuchar.");
       });
     else audio.current.pause();
   }, [playing, current.id, current.audioUrl]);
@@ -1487,9 +1488,14 @@ function App() {
             audio.current.play().catch(() => setPlaying(false));
           } else step(1);
         }}
-        onError={() => {
+        onError={(event) => {
           setPlaying(false);
-          notify("No se pudo cargar el audio. Inténtalo de nuevo.");
+          const error = event.currentTarget.error;
+          notify(
+            current.source === "local" && error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+              ? "Tu navegador no puede reproducir el formato o códec de este archivo."
+              : "No se pudo cargar el audio. Inténtalo de nuevo.",
+          );
         }}
       />
       {toast && (

@@ -65,7 +65,7 @@ Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables
 
 ## Biblioteca local
 
-- MP3, M4A, FLAC, WAV, OGG, OPUS y AAC; la reproducción de cada formato depende del navegador y de sus códecs. MP3 ofrece la compatibilidad más amplia.
+- MP3, AAC, M4A, M4B, FLAC, WAV, Ogg (incluido `.oga`), Opus y archivos MP4 y WebM de solo audio. La reproducción depende de los códecs del navegador. MP3 ofrece la compatibilidad más amplia.
 - Hasta 100 MB por archivo.
 - Los duplicados se detectan por SHA-256 del contenido.
 - Los archivos no musicales de una carpeta se omiten; los archivos de audio ilegibles se identifican en el resultado de importación.
@@ -73,7 +73,15 @@ Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables
 - Quitar una canción de la biblioteca elimina la copia del navegador, nunca el archivo original.
 - El navegador puede limitar o borrar su almacenamiento local, especialmente en navegación privada o si falta espacio. Conserva tus originales para volver a seleccionar la colección.
 - Cada navegador, perfil y dispositivo tiene su propia biblioteca. Iniciar sesión en otro dispositivo no descarga tus archivos.
-- Esta versión no convierte formatos de audio ni necesita un backend de archivos.
+- El reproductor usa los formatos que admite el navegador.
+
+## Descargas y conversión en Onda local
+
+En **En este dispositivo → Descargas y conversión**, pega un enlace a un video o una playlist de YouTube, o elige un archivo de audio o video. Selecciona MP3, M4A, FLAC o WAV y guarda el resultado. Puedes añadir un audio individual directamente a la biblioteca. Para una playlist, guarda el ZIP, extráelo y selecciona la carpeta resultante en Onda. Si YouTube omite algún video, el ZIP incluye un informe.
+
+- Abre la app desde `http://localhost:5173/` o `http://127.0.0.1:5173/` con `npm run dev -- --port 5173`. La herramienta se ejecuta en ese equipo. La versión estática de GitHub Pages conserva el reproductor y la importación de archivos.
+- Instala [FFmpeg](https://ffmpeg.org/download.html) para convertir y [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases/latest) para YouTube. Puedes poner los ejecutables en el `PATH`, en `%LOCALAPPDATA%\Onda\bin` en Windows, o indicar sus rutas absolutas en `.env.local` mediante `ONDA_FFMPEG_PATH` y `ONDA_YTDLP_PATH`.
+- El audio y los archivos de entrada se procesan en una carpeta temporal local. El límite es de 100 MB por archivo y 1 GB por ZIP. Guarda el resultado antes de iniciar otra operación o cerrar el servidor.
 
 ## Contenido de muestra
 
