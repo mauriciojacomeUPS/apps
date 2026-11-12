@@ -1,3 +1,4 @@
+import { catalogMetadata, genresFrom, releaseYear } from "./track-metadata.js";
 const DB_NAME = "onda-device-music-v1";
 let databasePromise;
 const AUDIO_TYPES = new Map([
@@ -14,8 +15,10 @@ const AUDIO_TYPES = new Map([
   ["opus", "audio/ogg"],
   ["webm", "audio/webm"],
 ]);
-export const localAudioAccept = ["audio/*", ...Array.from(AUDIO_TYPES.keys(), (ext) => "." + ext)]
-  .join(",");
+export const localAudioAccept = [
+  "audio/*",
+  ...Array.from(AUDIO_TYPES.keys(), (ext) => "." + ext),
+].join(",");
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 function audioType(name) {
@@ -118,13 +121,27 @@ export function deviceLibrary(userId = "guest") {
           const id =
             "local-" +
             [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-          if (await read(id)) result.duplicates++;
-          else {
+          const existing = await read(id);
+          const extra = catalogMetadata(metadata.common);
+          if (existing) {
+            // Enrich legacy records without replacing the user's edited labels.
+            const additions = Object.fromEntries(
+              Object.entries(extra).filter(([key]) => existing[key] === undefined),
+            );
+            if (existing.artist !== (metadata.common.artist || "Artista desconocido")) {
+              if ("artists" in additions) additions.artists = [existing.artist];
+              if ("albumArtist" in additions) additions.albumArtist = existing.artist;
+            }
+            if (Object.keys(additions).length)
+              await transaction("readwrite", (store) => store.put({ ...existing, ...additions }));
+            result.duplicates++;
+          } else {
             const record = {
               key: keyFor(id),
               owner,
               id,
               source: "local",
+              ...extra,
               file,
               title: String(metadata.common.title || file.name.replace(/\.[^.]+$/, "")).slice(
                 0,
@@ -173,13 +190,23 @@ export function deviceLibrary(userId = "guest") {
     async update(id, values) {
       const record = await read(id);
       if (!record) throw new Error("No se encontró la canción en este dispositivo.");
+      const previousArtist = record.artist;
       for (const field of ["title", "artist", "album"])
-        record[field] = String(values[field] || "")
-          .trim()
-          .slice(0, 200);
+        if (field in values)
+          record[field] = String(values[field] || "")
+            .trim()
+            .slice(0, 200);
       if (!record.title) throw new Error("Escribe un título para la canción.");
       record.artist ||= "Artista desconocido";
       record.album ||= "Archivos locales";
+      if (record.artist !== previousArtist || !record.artists) record.artists = [record.artist];
+      if ("albumArtist" in values)
+        record.albumArtist =
+          String(values.albumArtist || record.artist)
+            .trim()
+            .slice(0, 200) || record.artist;
+      if ("year" in values) record.year = releaseYear(values.year);
+      if ("genres" in values) record.genres = genresFrom(values.genres);
       await transaction("readwrite", (store) => store.put(record));
       return metadataOnly(record);
     },

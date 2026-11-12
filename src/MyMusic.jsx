@@ -113,7 +113,14 @@ export default function MyMusic({
   const edit = (track) => {
     setMenu(null);
     setError("");
-    setDetails({ title: track.title, artist: track.artist, album: track.album });
+    setDetails({
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      albumArtist: track.albumArtist || track.artist,
+      year: track.year || "",
+      genres: (track.genres || []).join(", "),
+    });
     setModal({ type: "edit", track });
   };
   const save = async (event) => {
@@ -186,7 +193,9 @@ export default function MyMusic({
         <div className="device-import-copy">
           <h2>{busy ? "Preparando tu música…" : "Hazle espacio a tus favoritos."}</h2>
           <p>Arrastra tus canciones o elige archivos y carpetas.</p>
-          <small>MP3, AAC, M4A, M4B, FLAC, WAV, Ogg, Opus, MP4 y WebM de audio · hasta 100 MB por canción</small>
+          <small>
+            MP3, AAC, M4A, M4B, FLAC, WAV, Ogg, Opus, MP4 y WebM de audio · hasta 100 MB por canción
+          </small>
         </div>
         <div className="device-import-actions">
           <button
@@ -449,11 +458,17 @@ export default function MyMusic({
                     ["title", "Título"],
                     ["artist", "Artista"],
                     ["album", "Álbum"],
+                    ["albumArtist", "Artista del álbum"],
+                    ["year", "Año"],
+                    ["genres", "Géneros (separados por comas)"],
                   ].map(([field, label]) => (
                     <React.Fragment key={field}>
                       <label htmlFor={"edit-" + field}>{label}</label>
                       <input
                         id={"edit-" + field}
+                        type={field === "year" ? "number" : "text"}
+                        min={field === "year" ? 1 : undefined}
+                        max={field === "year" ? 9999 : undefined}
                         maxLength={200}
                         required={field === "title"}
                         value={details[field]}

@@ -84,3 +84,27 @@ test("a folder containing other files and invalid audio reports them without hid
   assert.match(result.errors[0], /fake.mp3/);
   assert.equal((await library.list()).length, 1);
 });
+
+test("catalog edits survive reimport and partial updates preserve previous labels", async () => {
+  const library = deviceLibrary(owner());
+  const {
+    added: [track],
+  } = await library.importFiles([await song()]);
+  await library.update(track.id, {
+    artist: "Banda local",
+    albumArtist: "Banda local",
+    album: "Disco propio",
+    year: 2025,
+    genres: "Indie, Rock, Indie",
+  });
+  await library.update(track.id, { year: 2026 });
+  const duplicate = await library.importFiles([await song()]);
+  assert.equal(duplicate.duplicates, 1);
+  const [updated] = await library.list();
+  assert.equal(updated.title, "Sunset");
+  assert.equal(updated.artist, "Banda local");
+  assert.equal(updated.album, "Disco propio");
+  assert.deepEqual(updated.artists, ["Banda local"]);
+  assert.equal(updated.year, 2026);
+  assert.deepEqual(updated.genres, ["Indie", "Rock"]);
+});

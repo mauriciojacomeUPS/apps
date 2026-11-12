@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { X, ArrowRight, Mail, LockKeyhole, Headphones } from "lucide-react";
 import { api } from "./api";
+import { usePwa } from "./PwaContext";
 import "./account.css";
 
 const AuthContext = createContext(null);
@@ -17,7 +18,9 @@ function authMessage(error) {
   return error.message || "No se pudo completar la solicitud.";
 }
 export default function AccountGate({ children }) {
+  const { offline } = usePwa();
   const [user, setUser] = useState(null);
+  const [localOnly, setLocalOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sessionError, setSessionError] = useState("");
   const [open, setOpen] = useState(false);
@@ -30,30 +33,49 @@ export default function AccountGate({ children }) {
   const dialog = useRef(null);
   useEffect(() => {
     let active = true;
-    api
-      .session()
-      .then(({ user }) => {
-        if (active) setUser(user);
-      })
-      .catch(() => {
-        if (active)
+    const checkSession = () =>
+      api
+        .session()
+        .then(({ user, localOnly }) => {
+          if (!active) return;
+          setUser(user);
+          setLocalOnly(localOnly);
+          setSessionError("");
+        })
+        .catch(() => {
+          if (!active) return;
+          setUser(api.cachedProfile());
+          setLocalOnly(true);
           setSessionError(
             "No se pudo comprobar tu sesión. Puedes seguir usando la biblioteca de este dispositivo.",
           );
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    const unsubscribe = api.onAuthChange((next) => {
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    checkSession();
+    const unsubscribe = api.onAuthChange((next, state) => {
+      if (!active) return;
       setUser(next);
+      setLocalOnly(Boolean(state?.localOnly));
       if (next) {
         setOpen(false);
         setPassword("");
       }
     });
+    const disconnected = () => {
+      if (!active) return;
+      if (api.configured) setUser(api.cachedProfile());
+      setLocalOnly(true);
+      setLoading(false);
+    };
+    window.addEventListener("online", checkSession);
+    window.addEventListener("offline", disconnected);
     return () => {
       active = false;
       unsubscribe();
+      window.removeEventListener("online", checkSession);
+      window.removeEventListener("offline", disconnected);
     };
   }, []);
   useEffect(() => {
@@ -127,7 +149,7 @@ export default function AccountGate({ children }) {
       </div>
     );
   return (
-    <AuthContext.Provider value={{ user, demo: !user, signIn, logout }}>
+    <AuthContext.Provider value={{ user, demo: !user, localOnly, signIn, logout }}>
       {sessionError && (
         <div className="account-session-warning" role="status">
           {sessionError}
@@ -163,13 +185,28 @@ export default function AccountGate({ children }) {
             </div>
             <span className="eyebrow">TU ESPACIO. TU MÚSICA.</span>
             <h2 id="account-title">
-              {!api.configured
-                ? "Tu música ya tiene un lugar."
-                : mode === "signup"
-                  ? "Encuentra tu propia onda."
-                  : "Qué bueno tenerte de vuelta."}
+              {offline
+                ? "Tu música sigue contigo."
+                : !api.configured
+                  ? "Tu música ya tiene un lugar."
+                  : mode === "signup"
+                    ? "Encuentra tu propia onda."
+                    : "Qué bueno tenerte de vuelta."}
             </h2>
-            {!api.configured ? (
+            {offline ? (
+              <>
+                <p className="account-local-session">
+                  Estás sin conexión. Puedes seguir escuchando la biblioteca de este navegador
+                  {user ? " con tu último perfil local" : " sin iniciar sesión"}.
+                </p>
+                <p>
+                  Para entrar, cambiar de cuenta o cerrar la sesión, vuelve a conectarte a internet.
+                </p>
+                <button className="primary-button account-submit" onClick={() => setOpen(false)}>
+                  Seguir escuchando <ArrowRight size={17} />
+                </button>
+              </>
+            ) : !api.configured ? (
               <>
                 <p>
                   El acceso con cuenta estará disponible cuando se termine de conectar el servicio

@@ -69,7 +69,9 @@ Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables
 - Hasta 100 MB por archivo.
 - Los duplicados se detectan por SHA-256 del contenido.
 - Los archivos no musicales de una carpeta se omiten; los archivos de audio ilegibles se identifican en el resultado de importación.
-- Puedes buscar, reproducir, editar títulos/artistas/álbumes, guardar favoritos y añadir canciones a playlists y a la cola.
+- Puedes buscar, reproducir, editar título, artista, álbum, artista del álbum, año y géneros, guardar favoritos y añadir canciones a playlists y a la cola.
+- **Biblioteca → Álbumes / Artistas** organiza tus archivos según sus etiquetas. Discos del mismo nombre y distintos artistas permanecen separados; las etiquetas de disco y número de pista definen el orden del álbum.
+- **Buscar → Filtros** combina artista, álbum, género y año, con resultados separados en canciones, álbumes, artistas y playlists. La búsqueda ignora mayúsculas y tildes.
 - Quitar una canción de la biblioteca elimina la copia del navegador, nunca el archivo original.
 - El navegador puede limitar o borrar su almacenamiento local, especialmente en navegación privada o si falta espacio. Conserva tus originales para volver a seleccionar la colección.
 - Cada navegador, perfil y dispositivo tiene su propia biblioteca. Iniciar sesión en otro dispositivo no descarga tus archivos.
@@ -77,11 +79,21 @@ Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables
 
 ## Playlists y cola
 
-En una playlist personal, el menú de opciones permite renombrar, crear una copia o eliminarla con confirmación. Las flechas de cada canción cambian su orden; su menú permite quitarla de la lista sin borrar el archivo local. El nombre y el orden se conservan en este navegador, separados por cuenta.
+En una playlist personal, el menú de opciones permite editar el nombre, la descripción y la portada (JPG, PNG o WebP hasta 5 MB), crear una copia o eliminarla con confirmación. Las flechas de cada canción cambian su orden; su menú permite quitarla de la lista sin borrar el archivo local. Los detalles y el orden se conservan en este navegador, separados por cuenta.
+
+El mismo menú exporta **JSON** o **M3U**. Usa **Biblioteca → Importar** para recuperar una lista: primero selecciona las canciones en ese navegador. La vista previa informa de archivos encontrados, ausentes y ambiguos. JSON identifica los archivos de Onda por su contenido; M3U usa rutas o nombres únicos. Estos archivos contienen la selección y sus detalles, nunca el audio ni la cuenta. Las URLs remotas de una M3U se omiten.
 
 La cola muestra las canciones pendientes junto a lo que suena ahora. Puedes añadir varias veces una canción, subir o bajar cada entrada y quitarla individualmente. «Vaciar cola» pide confirmación y conserva la canción actual. Al terminar la última canción, la reproducción se detiene salvo que actives «Repetir canción».
 
 Los patrones de referencia y los límites de la observación de Spotify están documentados en [la revisión con REA](docs/rea-spotify-observations.md).
+
+## Continuar escuchando y usar sin conexión
+
+El reproductor conserva canción, posición, orden de la cola (incluidas entradas repetidas), volumen, aleatorio y repetición para cada perfil de este navegador. Al recargar se restaura **en pausa**: pulsa reproducir para continuar. El inicio muestra las escuchadas recientemente, las recién añadidas y las más reproducidas según el uso local, sin enviar historial a un servidor.
+
+Los controles multimedia del sistema y auriculares usan Media Session cuando el navegador la admite. Su disponibilidad en la pantalla bloqueada depende del dispositivo.
+
+La compilación de producción es una PWA. Abre la web una vez con internet para preparar sus archivos y después podrás reabrirla y escuchar las canciones locales sin conexión. **Perfil → Usar sin conexión** muestra el estado; **Instalar Onda** aparece cuando el navegador ofrece instalación. Las nuevas versiones piden una actualización manual y esperan a que pauses la música. Más detalles y pasos de prueba en [uso sin conexión](docs/offline.md).
 
 ## Descargas y conversión en Onda local
 
@@ -99,13 +111,7 @@ El catálogo inicial contiene seis títulos que reutilizan tres instrumentales o
 
 Consulta `docs/spotify-reference.md` para las fuentes oficiales y los patrones revisados. Onda es una aplicación independiente y no está afiliada a Spotify.
 
-REA se encuentra separado en `/workspace/rea`. Un análisis estático local se puede ejecutar con:
-
-```sh
-node /workspace/rea/scripts/rea.mjs analyze-javascript-application /workspace/apps/src --json
-```
-
-El análisis estático no sustituye las pruebas del navegador ni verifica un proyecto real de Supabase.
+REA se encuentra separado en `/workspace/rea`. La referencia pública se observó con capturas de navegador de REA; el código fuente de Onda se revisa con herramientas ordinarias y sus pruebas. Las capturas no verifican un proyecto real de Supabase ni las funciones privadas de una cuenta de Spotify.
 
 ## Verificación
 
@@ -115,6 +121,6 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Las pruebas de navegador usan Chromium del sistema si está disponible, o el navegador instalado por Playwright. Puedes seleccionar un ejecutable con `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Las pruebas incluyen la ruta `/apps/`, reproducción real, importación de carpetas, persistencia, duplicados y limpieza de referencias al quitar canciones.
+Las pruebas de navegador usan Chromium del sistema si está disponible, o el navegador instalado por Playwright. Puedes seleccionar un ejecutable con `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Incluyen la ruta `/apps/` en escritorio y móvil, reproducción real, álbumes y artistas, filtros, importación/exportación de playlists, portadas, persistencia de la cola y reapertura offline con audio local.
 
 La prueba de cuentas simula el servicio de autenticación de Supabase para verificar la integración y el cambio entre bibliotecas locales. No valida una conexión real a un proyecto ni el envío de correos; eso requiere configurar tu proyecto.

@@ -47,3 +47,13 @@ Ofrecer botones de subir/bajar además de, o en lugar de, arrastre es una decisi
 El primer intento de captura en modo launch no llegó a la página; REA informó que terminó su proceso propio. Se corrigió la ruta de red usando un Chromium temporal con el proxy heredado del entorno y verificación TLS activa, y REA se conectó a su endpoint CDP loopback. No se modificó la configuración de REA ni se desactivó la verificación TLS.
 
 La sesión fue en inglés, sin cookies personales ni sesión de usuario. No se verificaron reproducción autenticada, ordenación real por arrastre en Spotify, límites Premium, recomendaciones personalizadas, sincronización ni contratos de sus APIs. El catálogo público puede variar por región y momento.
+
+## Continuación de Onda: 12 de noviembre de 2026
+
+Se reutilizó la evidencia pública anterior como referencia de navegación. Los álbumes/artistas basados en etiquetas, el historial local, la reanudación, los filtros, las portadas de playlists y la PWA son decisiones de implementación de Onda. No se presentan como funciones privadas de Spotify observadas en una cuenta.
+
+REA también ejecutó un escenario sobre la compilación local de Onda en `/apps/#search`: rellenar «Golden Hour», abrir «Filtros», seleccionar «Onda Studio» y esperar la fila de resultado. Los cinco pasos, contando la navegación inicial, terminaron correctamente. Evidence: `ev_aea4ebcdefa7c5ee341f72594e5a02241ea09cb1c422d9752df4786b1ec71c18`.
+
+La captura final de accesibilidad y URL quedó completa, sin truncamiento; muestra los tipos de resultado, los filtros y la canción encontrada. El informe global marca eventos ausentes porque no se solicitaron. Esta evidencia comprueba ese recorrido visible: no mide reproducción, instalación ni funcionamiento offline. Esos comportamientos se verifican por separado con las pruebas automatizadas de Onda.
+
+El bundle completo, el escenario, el resumen y el texto de accesibilidad están en `/workspace/shared/onda-current-validation/rea/onda-search-*`, fuera del repositorio. REA se desconectó del Chromium temporal al terminar; el navegador creado para esta comprobación se cerró después. No se usaron cuentas ni archivos personales.

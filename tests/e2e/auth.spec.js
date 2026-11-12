@@ -66,13 +66,11 @@ test("Supabase auth contract switches independent local libraries; audio never u
   };
   await login("one@example.test");
   await page.getByRole("button", { name: "Archivos de este dispositivo", exact: true }).click();
-  await page
-    .getByLabel("Seleccionar canciones locales")
-    .setInputFiles({
-      name: "Solo usuario uno.mp3",
-      mimeType: "audio/mpeg",
-      buffer: await readFile("public/audio/sunset.mp3"),
-    });
+  await page.getByLabel("Seleccionar canciones locales").setInputFiles({
+    name: "Solo usuario uno.mp3",
+    mimeType: "audio/mpeg",
+    buffer: await readFile("public/audio/sunset.mp3"),
+  });
   await expect(page.locator(".device-track")).toHaveCount(1);
   await page.getByRole("button", { name: "Me gusta Sunset", exact: true }).click();
   await page.reload();
@@ -82,6 +80,32 @@ test("Supabase auth contract switches independent local libraries; audio never u
     .poll(() => page.locator("audio").evaluate((a) => !a.paused && a.src.startsWith("blob:")))
     .toBeTruthy();
   const previousPlayer = await page.locator("audio").elementHandle();
+  await page.evaluate(() => {
+    window.mediaActionsForAuth = {};
+    const audio = document.querySelector("audio");
+    audio.currentTime = 12;
+  });
+  await page.context().setOffline(true);
+  await expect(
+    page.getByText("Sin conexión · Escucha la música guardada en este navegador.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".device-track")).toHaveCount(1);
+  expect(await previousPlayer.evaluate((a) => a.isConnected && !a.paused)).toBeTruthy();
+  const profile = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("onda-local-profile:https://onda-e2e.supabase.co")),
+  );
+  expect(profile).toEqual(users["one@example.test"]);
+  await page.getByRole("button", { name: "Abrir perfil", exact: true }).click();
+  await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Tu música sigue contigo.", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Seguir escuchando", exact: true }).click();
+  await expect(page.locator(".device-track")).toHaveCount(1);
+  await page.context().setOffline(false);
+  await expect(
+    page.getByText("Sin conexión · Escucha la música guardada en este navegador.", { exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Abrir perfil", exact: true }).click();
   await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
   await expect(page.locator(".device-track")).toHaveCount(0);
@@ -103,6 +127,13 @@ test("Supabase auth contract switches independent local libraries; audio never u
   await expect(
     page.getByRole("button", { name: "Quitar de me gusta Sunset", exact: true }),
   ).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator("audio")
+        .evaluate((a) => a.paused && a.src.startsWith("blob:") && a.currentTime >= 12),
+    )
+    .toBeTruthy();
   expect(calls.length).toBeGreaterThan(0);
   expect(calls.every((path) => path.startsWith("/auth/v1/"))).toBeTruthy();
 });

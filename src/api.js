@@ -39,24 +39,65 @@ function unwrap({ data, error }) {
   if (error) throw error;
   return data;
 }
+const profileKey = configured ? "onda-local-profile:" + new URL(url).origin : null;
+const offline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+function cachedProfile() {
+  if (!profileKey) return null;
+  try {
+    const profile = JSON.parse(localStorage.getItem(profileKey));
+    return typeof profile?.id === "string" && typeof profile?.email === "string"
+      ? { id: profile.id, email: profile.email }
+      : null;
+  } catch {
+    return null;
+  }
+}
+function rememberProfile(user) {
+  if (!profileKey) return;
+  try {
+    if (user?.id && user?.email)
+      localStorage.setItem(profileKey, JSON.stringify({ id: user.id, email: user.email }));
+    else localStorage.removeItem(profileKey);
+  } catch {
+    /* Local playback remains usable if profile storage is unavailable. */
+  }
+}
+function requireConnection() {
+  if (offline())
+    throw new Error(
+      "Conéctate a internet para entrar, cambiar de cuenta o cerrar la sesión. Tu biblioteca local sigue disponible.",
+    );
+}
 export const api = {
   configured,
+  cachedProfile,
   async session() {
-    if (!client) return { user: null };
+    if (!client) return { user: null, localOnly: false };
+    if (offline()) return { user: cachedProfile(), localOnly: true };
     const { session } = unwrap(await client.auth.getSession());
-    return { user: session?.user || null };
+    const user = session?.user || null;
+    rememberProfile(user);
+    return { user, localOnly: false };
   },
   onAuthChange(callback) {
     if (!client) return () => {};
-    const { data } = client.auth.onAuthStateChange((_event, session) =>
-      callback(session?.user || null),
-    );
+    const { data } = client.auth.onAuthStateChange((event, session) => {
+      const user = session?.user || null;
+      if (!user && offline()) {
+        callback(cachedProfile(), { localOnly: true });
+        return;
+      }
+      rememberProfile(user);
+      callback(user, { localOnly: offline() });
+    });
     return () => data.subscription.unsubscribe();
   },
   async login(email, password) {
+    requireConnection();
     unwrap(await requireClient().auth.signInWithPassword({ email, password }));
   },
   async signup(email, password) {
+    requireConnection();
     const data = unwrap(
       await requireClient().auth.signUp({
         email,
@@ -69,6 +110,8 @@ export const api = {
     return { confirmationRequired: !data.session };
   },
   async logout() {
+    requireConnection();
     unwrap(await requireClient().auth.signOut());
+    rememberProfile(null);
   },
 };

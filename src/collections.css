@@ -1,0 +1,578 @@
+.collection-page {
+  padding-top: 28px;
+  padding-bottom: 35px;
+}
+.collection-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 29px;
+}
+.collection-tabs > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #ffffff10;
+  border-radius: 24px;
+  padding: 8px 15px;
+  font-size: 11px;
+  color: #a6b59c;
+  background: #ffffff03;
+}
+.collection-tabs > button[aria-pressed="true"] {
+  color: #24311a;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.collection-tabs > button:hover {
+  border-color: #c1f68b55;
+}
+.collection-index-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: start;
+}
+.collection-index-heading > svg {
+  flex-shrink: 0;
+  color: #86a173;
+  margin-top: 10px;
+}
+.collection-index-heading h1 {
+  font-size: 32px;
+}
+.collection-index-heading h1 > span {
+  color: var(--accent);
+}
+.collection-index-heading .page-description {
+  font-size: 12px;
+  color: #93a58a;
+  margin-top: 12px;
+  line-height: 1.8;
+  margin-bottom: 25px;
+  max-width: 540px;
+}
+.collection-browse-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 8px 0 18px;
+}
+.collection-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #849c75;
+  border: 1px solid #ffffff12;
+  background: #10170f;
+  border-radius: 7px;
+  padding: 10px 13px;
+  min-width: 0;
+  width: 100%;
+  max-width: 380px;
+}
+.collection-search:focus-within {
+  border-color: #c1f68b66;
+}
+.collection-search > svg {
+  flex-shrink: 0;
+}
+.collection-search > input {
+  border: 0;
+  outline: 0;
+  background: none;
+  color: #edf4e6;
+  min-width: 0;
+  width: 100%;
+  font-size: 11px;
+}
+.collection-search input::placeholder {
+  color: #768c68;
+}
+.collection-sort {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #829773;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+.collection-sort select {
+  font: inherit;
+  font-size: 10px;
+  color: #c0d3b2;
+  background: #1c261a;
+  border: 1px solid #ffffff14;
+  border-radius: 6px;
+  padding: 9px;
+  max-width: 150px;
+}
+.collection-count {
+  color: #829976;
+  font-size: 10px;
+  margin: 18px 0;
+}
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 23px 19px;
+}
+.catalog-card {
+  container-type: inline-size;
+  position: relative;
+  min-width: 0;
+  border-radius: 8px;
+}
+.catalog-card-main {
+  display: block;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+  border-radius: 8px;
+}
+.catalog-art {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #253322;
+  box-shadow: 0 6px 22px #0002;
+}
+.catalog-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+.catalog-card-main:hover .catalog-art > img {
+  transform: scale(1.04);
+}
+.catalog-card-main h2 {
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+  margin: 12px 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.1px;
+}
+.catalog-card-main p {
+  font-size: 10px;
+  line-height: 1.7;
+  color: #a1b296;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.catalog-card-main small {
+  display: block;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #718965;
+  margin-top: 4px;
+}
+.catalog-artist-card .catalog-art {
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 20%, #38452c, #172216);
+}
+.catalog-artist-card .catalog-art > img {
+  opacity: 0.88;
+}
+.catalog-artist-card h2 {
+  text-align: center;
+}
+.catalog-artist-card p {
+  text-align: center;
+  font-size: 9px;
+}
+.catalog-play {
+  position: absolute;
+  right: 10px;
+  top: calc(100cqw - 50px);
+  height: 39px;
+  width: 39px;
+  opacity: 0;
+  transform: translateY(5px);
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+}
+.catalog-card:hover .catalog-play,
+.catalog-card:focus-within .catalog-play {
+  opacity: 1;
+  transform: translateY(0);
+}
+.catalog-artist-card .catalog-play {
+  right: 13px;
+  top: calc(100cqw - 53px);
+}
+.collection-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #91a785;
+  font-size: 10px;
+  margin-bottom: 22px;
+  padding: 0;
+}
+.collection-back:hover {
+  color: var(--accent);
+}
+.collection-detail-hero {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  background: radial-gradient(ellipse at 15% 0, #40553277, transparent 80%), #1c251b;
+  padding: 28px;
+  border: 1px solid #ffffff07;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  min-width: 0;
+}
+.collection-detail-cover {
+  height: 190px;
+  width: 190px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 9px 28px #0004;
+  flex-shrink: 0;
+}
+.collection-detail-hero > div {
+  min-width: 0;
+}
+.collection-detail-hero .eyebrow {
+  font-size: 8px;
+  line-height: 1.7;
+  letter-spacing: 1.5px;
+  color: #98ac8b;
+}
+.collection-detail-hero h1 {
+  font-family: "Manrope", "DM Sans", sans-serif;
+  font-size: clamp(30px, 3.5vw, 52px);
+  font-weight: 800;
+  letter-spacing: -1.8px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  margin: 11px 0;
+}
+.collection-credit {
+  font-size: 13px;
+  font-weight: 500;
+  color: #c2d3b8;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+.collection-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #8fa582;
+  margin: 10px 0;
+}
+.collection-play-all {
+  margin-top: 15px;
+}
+.collection-artist-hero .collection-detail-cover {
+  border-radius: 50%;
+}
+.collection-discography {
+  margin-top: 33px;
+}
+.collection-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin: 24px 0 17px;
+}
+.collection-section-heading h2 {
+  font-size: 21px;
+  letter-spacing: -0.5px;
+}
+.collection-section-heading .eyebrow {
+  font-size: 7px;
+  margin-bottom: 7px;
+}
+.catalog-discography-grid {
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 19px;
+}
+.collection-track-section {
+  margin-top: 29px;
+}
+.collection-track-section .collection-search {
+  max-width: 260px;
+  padding: 9px 11px;
+}
+.collection-contributors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 22px 0;
+  color: #7c936e;
+  font-size: 9px;
+}
+.collection-contributors > button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: #b1c5a2;
+  border: 1px solid #ffffff0d;
+  border-radius: 18px;
+  background: #ffffff04;
+  padding: 6px 9px;
+}
+.collection-contributors > button:hover {
+  color: var(--accent);
+  border-color: #b9ea8c55;
+}
+.collection-no-results {
+  padding-top: 45px;
+  padding-bottom: 45px;
+}
+.collection-empty {
+  padding-top: 60px;
+  padding-bottom: 60px;
+}
+.collection-empty h1 {
+  font-size: 25px;
+  letter-spacing: -0.6px;
+}
+.collection-source-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #677d5b;
+  font-size: 9px;
+  line-height: 1.8;
+  margin-top: 35px;
+  padding-bottom: 10px;
+}
+.collection-source-note > svg {
+  flex-shrink: 0;
+}
+@media (min-width: 1600px) {
+  .catalog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  }
+  .catalog-card-main h2 {
+    font-size: 15px;
+  }
+  .catalog-card-main p {
+    font-size: 11px;
+  }
+  .collection-detail-cover {
+    height: 225px;
+    width: 225px;
+  }
+}
+@media (max-width: 1050px) {
+  .collection-detail-hero {
+    gap: 22px;
+    padding: 23px;
+  }
+  .collection-detail-cover {
+    width: 155px;
+    height: 155px;
+  }
+  .collection-detail-hero h1 {
+    font-size: 36px;
+  }
+  .collection-detail-hero .eyebrow {
+    font-size: 7px;
+  }
+  .collection-facts {
+    font-size: 9px;
+  }
+  .collection-credit {
+    font-size: 12px;
+  }
+  .catalog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+    gap: 21px 15px;
+  }
+  .collection-section-heading {
+    gap: 12px;
+  }
+  .collection-section-heading h2 {
+    font-size: 19px;
+  }
+  .collection-track-section .collection-search {
+    max-width: 230px;
+  }
+  .collection-tabs {
+    margin-bottom: 25px;
+  }
+}
+@media (max-width: 680px) {
+  .collection-page {
+    padding-top: 22px;
+    padding-bottom: 26px;
+  }
+  .collection-tabs {
+    gap: 9px;
+    margin-bottom: 25px;
+  }
+  .collection-tabs > button {
+    font-size: 10px;
+    padding: 8px 14px;
+  }
+  .collection-index-heading h1 {
+    font-size: 29px;
+  }
+  .collection-index-heading > svg {
+    width: 25px;
+    height: 25px;
+    margin-top: 9px;
+  }
+  .collection-index-heading .page-description {
+    font-size: 11px;
+    line-height: 1.8;
+    max-width: 290px;
+    margin-bottom: 20px;
+  }
+  .collection-browse-tools {
+    gap: 10px;
+    margin-top: 7px;
+    align-items: stretch;
+  }
+  .collection-search {
+    padding: 10px 11px;
+    gap: 8px;
+    max-width: none;
+  }
+  .collection-search > input {
+    font-size: 10px;
+  }
+  .collection-sort > span {
+    display: none;
+  }
+  .collection-sort select {
+    font-size: 9px;
+    max-width: 105px;
+    padding: 8px;
+  }
+  .collection-count {
+    font-size: 9px;
+    margin: 17px 0;
+  }
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 25px 16px;
+  }
+  .catalog-card-main h2 {
+    font-size: 12px;
+    margin-top: 11px;
+  }
+  .catalog-card-main p {
+    font-size: 10px;
+  }
+  .catalog-card-main small {
+    font-size: 8px;
+  }
+  .catalog-play {
+    opacity: 1;
+    height: 33px;
+    width: 33px;
+    right: 8px;
+    top: calc(100cqw - 42px);
+    transform: none;
+  }
+  .catalog-play > svg {
+    height: 15px;
+    width: 15px;
+  }
+  .catalog-artist-card .catalog-play {
+    right: 10px;
+    top: calc(100cqw - 45px);
+  }
+  .collection-detail-hero {
+    flex-direction: column;
+    align-items: start;
+    padding: 23px 20px;
+    gap: 22px;
+    border-radius: 10px;
+  }
+  .collection-detail-cover {
+    width: 175px;
+    height: 175px;
+    align-self: center;
+  }
+  .collection-detail-hero h1 {
+    font-size: 34px;
+    letter-spacing: -1.4px;
+    line-height: 1.2;
+    margin: 9px 0;
+  }
+  .collection-detail-hero .eyebrow {
+    font-size: 7px;
+  }
+  .collection-credit {
+    font-size: 12px;
+  }
+  .collection-facts {
+    font-size: 9px;
+    gap: 6px;
+    margin-top: 11px;
+  }
+  .collection-play-all {
+    margin-top: 13px;
+    font-size: 10px;
+  }
+  .collection-back {
+    font-size: 9px;
+    margin-bottom: 18px;
+  }
+  .collection-discography {
+    margin-top: 28px;
+  }
+  .collection-section-heading {
+    align-items: start;
+    gap: 13px;
+  }
+  .collection-section-heading h2 {
+    font-size: 20px;
+  }
+  .collection-section-heading .eyebrow {
+    font-size: 6px;
+    letter-spacing: 1px;
+  }
+  .collection-track-section .collection-section-heading {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .collection-track-section .collection-search {
+    max-width: none;
+  }
+  .catalog-discography-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 15px;
+  }
+  .collection-contributors {
+    font-size: 8px;
+    gap: 6px;
+  }
+  .collection-source-note {
+    align-items: start;
+    font-size: 8px;
+    margin-top: 28px;
+  }
+  .collection-source-note > svg {
+    margin-top: 2px;
+  }
+  .collection-empty {
+    padding-top: 45px;
+    padding-bottom: 45px;
+  }
+  .collection-empty h1 {
+    font-size: 24px;
+  }
+}

@@ -39,11 +39,24 @@ import {
   Pencil,
   Copy,
   Trash2,
+  Download,
+  Upload,
+  WifiOff,
+  Smartphone,
+  Users,
 } from "lucide-react";
 import { tracks as demoTracks, playlists, img, formatTime } from "./data";
 import AccountGate, { useAuth } from "./AccountGate";
 import MyMusic from "./MyMusic";
 import { deviceLibrary } from "./device-library";
+import { readPlayback, restorePlayback, recordListen } from "./playback-state.js";
+import usePlaybackPersistence from "./usePlaybackPersistence";
+import useMediaControls from "./useMediaControls";
+import CollectionBrowser from "./CollectionBrowser";
+import SearchPage from "./SearchPage";
+import HomePersonalization from "./HomePersonalization";
+import { PwaProvider, usePwa } from "./PwaContext";
+import { importPlaylist, downloadPlaylist, playlistArtwork } from "./playlist-transfer";
 import QueuePanel from "./QueuePanel";
 import {
   makeQueue,
@@ -80,7 +93,10 @@ function IconButton({ title, children, className = "", ...props }) {
 }
 function Cover({ playlist, className = "", onClick }) {
   return (
-    <div className={`cover-art ${playlist.id} ${className}`} onClick={onClick}>
+    <div
+      className={`cover-art ${playlist.id} ${playlist.cover?.startsWith("data:image/") ? "custom-art" : ""} ${className}`}
+      onClick={onClick}
+    >
       <img src={img(playlist.cover)} alt="" />
       <div className="art-shade" />
       <span className="art-brand">
@@ -231,7 +247,8 @@ function SectionHeading({ eyebrow, title, action, onAction }) {
 }
 
 function App() {
-  const { user, signIn, logout } = useAuth();
+  const { user, localOnly, signIn, logout } = useAuth();
+  const pwa = usePwa();
   const device = useMemo(() => deviceLibrary(user?.id || "guest"), [user?.id]);
   const [localTracks, setLocalTracks] = useState([]);
   const tracks = useMemo(() => [...demoTracks, ...localTracks], [localTracks]);
@@ -241,8 +258,15 @@ function App() {
     readSaved(libraryKey(key), user ? fallback : readSaved(key, fallback));
   const playRequest = useRef(0);
   const initialQueue = useMemo(() => makeQueue(demoTracks), []);
+  const [savedPlayback] = useState(() => readPlayback(localStorage, libraryKey("onda-player")));
+  const [playerReady, setPlayerReady] = useState(false);
+  const pendingSeek = useRef(null);
+  const manualPlayback = useRef(false);
+  const lastListened = useRef(null);
+  const [listening, setListening] = useState(() => readMySaved("onda-listening", []));
 
   const [view, setView] = useState("home");
+  const [collectionId, setCollectionId] = useState(null);
   const [selectedRecord, setSelected] = useState(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("Todo");
@@ -251,9 +275,11 @@ function App() {
   const [queue, setQueue] = useState(initialQueue);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(45.740408);
-  const [volume, setVolume] = useState(0.7);
-  const [shuffle, setShuffle] = useState(false);
-  const [repeat, setRepeat] = useState(false);
+  const [volume, setVolume] = useState(() =>
+    Number.isFinite(savedPlayback?.volume) ? Math.max(0, Math.min(1, savedPlayback.volume)) : 0.7,
+  );
+  const [shuffle, setShuffle] = useState(savedPlayback?.shuffle === true);
+  const [repeat, setRepeat] = useState(savedPlayback?.repeat === true);
   const [liked, setLiked] = useState(() => readMySaved("onda-liked", []));
   const [saved, setSaved] = useState(() => readMySaved("onda-saved", ["summer", "focus", "night"]));
   const [custom, setCustom] = useState(() => readMySaved("onda-playlists", []));
@@ -265,7 +291,8 @@ function App() {
   const [mobileLibrary, setMobileLibrary] = useState(false);
   const [libraryFilter, setLibraryFilter] = useState("");
   const [librarySearch, setLibrarySearch] = useState(false);
-  const [activeMood, setActiveMood] = useState("");
+  const playlistFile = useRef(null);
+  const artworkFile = useRef(null);
   const audio = useRef(null);
   const searchInput = useRef(null);
   const toastTimer = useRef(null);
@@ -301,11 +328,37 @@ function App() {
     const player = audio.current;
     device
       .list()
-      .then((list) => {
-        if (active) setLocalTracks(list);
+      .then(async (list) => {
+        if (!active) return;
+        setLocalTracks(list);
+        if (savedPlayback && !manualPlayback.current) {
+          const restored = restorePlayback(savedPlayback, [...demoTracks, ...list]);
+          if (restored) {
+            const audioUrl =
+              restored.current.source === "local"
+                ? await device.audioUrl(restored.current)
+                : undefined;
+            if (active && !manualPlayback.current) {
+              pendingSeek.current = {
+                queueId: restored.current.queueId,
+                position: restored.position,
+              };
+              setQueue(restored.queue);
+              setCurrent({ ...restored.current, audioUrl });
+              setProgress(restored.position);
+              if (restored.missingCurrent)
+                notify(
+                  "La última canción no está disponible aquí. Vuelve a seleccionar tus archivos.",
+                );
+            }
+          }
+        }
       })
       .catch((error) => {
         if (active) notify(error.message);
+      })
+      .finally(() => {
+        if (active) setPlayerReady(true);
       });
     return () => {
       active = false;
@@ -323,8 +376,37 @@ function App() {
     localStorage.setItem(libraryKey("onda-saved"), JSON.stringify(saved));
   }, [saved]);
   useEffect(() => {
-    localStorage.setItem(libraryKey("onda-playlists"), JSON.stringify(custom));
+    try {
+      localStorage.setItem(libraryKey("onda-playlists"), JSON.stringify(custom));
+    } catch {
+      notify(
+        "El almacenamiento del navegador está lleno. Exporta tus playlists para conservarlas.",
+      );
+    }
   }, [custom]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(libraryKey("onda-listening"), JSON.stringify(listening));
+    } catch {}
+  }, [listening]);
+  const applyPendingSeek = (player) => {
+    const saved = pendingSeek.current;
+    if (
+      !saved ||
+      saved.queueId !== current.queueId ||
+      player.readyState < 1 ||
+      !Number.isFinite(player.duration)
+    )
+      return false;
+    const position = saved.position < player.duration - 0.25 ? Math.max(0, saved.position) : 0;
+    player.currentTime = position;
+    setProgress(position);
+    pendingSeek.current = null;
+    return true;
+  };
+  useEffect(() => {
+    applyPendingSeek(audio.current);
+  }, [current.queueId, current.audioUrl, playerReady]);
   useEffect(() => {
     audio.current.volume = volume;
   }, [volume]);
@@ -348,8 +430,10 @@ function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const navigate = (next, playlistId) => {
-    const hash = next === "playlist" ? `#playlist/${playlistId}` : `#${next}`;
+  const navigate = (next, id) => {
+    const hash = ["playlist", "album", "artist"].includes(next)
+      ? `#${next}/${encodeURIComponent(id)}`
+      : `#${next}`;
     if (window.location.hash !== hash) {
       historyIndex.current += 1;
       historyTotal.current = historyIndex.current;
@@ -357,9 +441,9 @@ function App() {
       setHistoryVersion((v) => v + 1);
     }
     setView(next);
+    setCollectionId(["album", "artist"].includes(next) ? id : null);
     setQuery("");
     setMenu(null);
-    setActiveMood("");
     setMobileLibrary(false);
     document.querySelector(".main-scroll")?.scrollTo(0, 0);
   };
@@ -371,6 +455,7 @@ function App() {
     setLiked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
   const playTrack = async (track, list = tracks) => {
+    manualPlayback.current = true;
     const request = ++playRequest.current;
     try {
       const audioUrl = track.source === "local" ? await device.audioUrl(track) : undefined;
@@ -384,6 +469,7 @@ function App() {
       }
       if (shuffle && !existing) nextQueue = shuffleUpcoming(nextQueue, entry);
       if (entry.queueId !== current.queueId) {
+        pendingSeek.current = null;
         audio.current.pause();
         audio.current.currentTime = 0;
         setProgress(0);
@@ -408,6 +494,7 @@ function App() {
     notify("Canción añadida a la cola.");
   };
   const removeLocalTrack = (track) => {
+    setListening((previous) => previous.filter((item) => item.trackId !== track.id));
     if (current.id === track.id) {
       ++playRequest.current;
       audio.current.pause();
@@ -447,6 +534,36 @@ function App() {
     setShuffle(!shuffle);
     if (!shuffle) setQueue((previous) => shuffleUpcoming(previous, current));
   };
+  const seekPlayback = (position) => {
+    if (!Number.isFinite(position)) return;
+    const time = Math.max(0, Math.min(audio.current.duration || duration, position));
+    audio.current.currentTime = time;
+    setProgress(time);
+  };
+  usePlaybackPersistence({
+    state: { queue, current, progress, volume, shuffle, repeat, playing },
+    ready: playerReady,
+    storageKey: libraryKey("onda-player"),
+    audio,
+    pendingSeek,
+    onError: notify,
+  });
+  useMediaControls({
+    current,
+    playing,
+    progress,
+    duration,
+    onPlay: () => playTrack(current, queue),
+    onPause: () => setPlaying(false),
+    onPrevious: () => {
+      if (audio.current.currentTime > 3) seekPlayback(0);
+      else step(-1);
+    },
+    onNext: () => {
+      if (activeQueueIndex(queue, current) + 1 < queue.length) step(1);
+    },
+    onSeek: seekPlayback,
+  });
   const savePlaylist = (p) => {
     setSaved((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
   };
@@ -494,15 +611,60 @@ function App() {
         : selectedRecord;
   const selectedTracks = getTracks(selected);
   const editablePlaylist = selected?.id.startsWith("custom-");
+  const persistPlaylists = (next) => {
+    try {
+      localStorage.setItem(libraryKey("onda-playlists"), JSON.stringify(next));
+      setCustom(next);
+      return true;
+    } catch {
+      notify(
+        "No hay espacio para guardar la playlist. Usa una portada más pequeña o libera espacio.",
+      );
+      return false;
+    }
+  };
   const renamePlaylist = (event) => {
     event.preventDefault();
     const name = modal.name.trim();
     if (!name) return;
-    setCustom((previous) =>
-      previous.map((p) => (p.id === modal.playlistId ? { ...p, title: name, art: name } : p)),
-    );
+    if (
+      !persistPlaylists(
+        custom.map((p) =>
+          p.id === modal.playlistId
+            ? { ...p, title: name, art: name, subtitle: modal.description, cover: modal.cover }
+            : p,
+        ),
+      )
+    )
+      return;
     setModal(null);
-    notify("Nombre de playlist actualizado.");
+    notify("Detalles de playlist actualizados.");
+  };
+  const loadPlaylist = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error("El límite es 5 MB por lista.");
+      const imported = importPlaylist(await file.text(), file.name, tracks);
+      setModal({ type: "import-playlist", imported });
+    } catch (error) {
+      notify(error.message);
+    }
+  };
+  const finishImport = () => {
+    const { missing, ambiguous, duplicates, remote, ...imported } = modal.imported;
+    const playlist = {
+      ...imported,
+      id: `custom-${crypto.randomUUID()}`,
+      art: imported.title,
+      color: "#6c678c",
+    };
+    if (!persistPlaylists([...custom, playlist])) return;
+    setSaved((previous) => [...previous, playlist.id]);
+    setModal(null);
+    openPlaylist(playlist);
+    notify("Playlist importada. Tus archivos permanecen en este dispositivo.");
   };
   const duplicatePlaylist = () => {
     const name = `${selected.title} (copia)`.slice(0, 60);
@@ -568,7 +730,19 @@ function App() {
         } else {
           setView("library");
         }
-      } else if (["home", "search", "library", "device"].includes(route)) setView(route);
+      } else if (/^(album|artist)\//.test(route)) {
+        const [next, encoded] = [
+          route.slice(0, route.indexOf("/")),
+          route.slice(route.indexOf("/") + 1),
+        ];
+        try {
+          setCollectionId(decodeURIComponent(encoded));
+          setView(next);
+        } catch {
+          setView(next === "album" ? "albums" : "artists");
+        }
+      } else if (["home", "search", "library", "device", "albums", "artists"].includes(route))
+        setView(route);
       else setView("home");
     };
     restoreRoute();
@@ -591,7 +765,9 @@ function App() {
     const oldFocus = document.activeElement;
     const dialog = document.querySelector('[role="dialog"]');
     const elements = () =>
-      [...dialog.querySelectorAll("button, input")].filter((el) => !el.disabled);
+      [
+        ...dialog.querySelectorAll("button, input:not([type=hidden]), textarea, select, a[href]"),
+      ].filter((el) => !el.disabled && el.getClientRects().length);
     (dialog.querySelector("input") || elements()[0])?.focus();
     const trap = (e) => {
       if (e.key !== "Tab") return;
@@ -611,13 +787,20 @@ function App() {
       dialog.removeEventListener("keydown", trap);
       if (oldFocus?.isConnected) oldFocus.focus();
     };
-  }, [modal]);
-  const searchMatches = tracks.filter((t) =>
-    `${t.title} ${t.artist} ${t.album} ${t.mood || ""}`.toLowerCase().includes(query.toLowerCase()),
+  }, [modal?.type, modal?.playlistId]);
+  const renderTracks = (list) => (
+    <TrackRows
+      list={list}
+      current={current}
+      playing={playing}
+      duration={duration}
+      liked={liked}
+      playTrack={playTrack}
+      toggleLike={toggleLike}
+      setModal={setModal}
+    />
   );
-  const playlistMatches = allPlaylists.filter((p) =>
-    `${p.title} ${p.subtitle}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const libraryView = ["library", "albums", "artists", "album", "artist"].includes(view);
   const visiblePlaylists =
     filter === "Para ti"
       ? [playlists[2], playlists[0], playlists[3], playlists[5], playlists[4]]
@@ -649,7 +832,7 @@ function App() {
           </IconButton>
           <IconButton
             title="Tu biblioteca"
-            className={view === "library" ? "rail-active" : ""}
+            className={libraryView ? "rail-active" : ""}
             onClick={() => navigate("library")}
           >
             <Library size={23} />
@@ -695,15 +878,21 @@ function App() {
           </IconButton>
         </div>
         <div className="library-chips">
-          <button className="chip selected" onClick={() => navigate("library")}>
+          <button
+            className={`chip ${view === "library" ? "selected" : ""}`}
+            onClick={() => navigate("library")}
+          >
             Playlists
           </button>
           <button
-            className="chip"
-            onClick={() => {
-              navigate("search");
-              setQuery("Onda Studio");
-            }}
+            className={`chip ${["albums", "album"].includes(view) ? "selected" : ""}`}
+            onClick={() => navigate("albums")}
+          >
+            Álbumes
+          </button>
+          <button
+            className={`chip ${["artists", "artist"].includes(view) ? "selected" : ""}`}
+            onClick={() => navigate("artists")}
           >
             Artistas
           </button>
@@ -832,7 +1021,6 @@ function App() {
               }}
               onChange={(e) => {
                 setQuery(e.target.value);
-                setActiveMood("");
               }}
             />
             {query ? (
@@ -892,6 +1080,11 @@ function App() {
                 <div className="dropdown profile-menu">
                   <strong className="profile-email">{user?.email || "Tu espacio local"}</strong>
                   <span>{user ? "Tu cuenta de Onda" : "Escuchando sin cuenta"}</span>
+                  {localOnly && user && (
+                    <p className="pwa-menu-note">
+                      Perfil local sin conexión. Podrás cambiar de cuenta cuando vuelva internet.
+                    </p>
+                  )}
                   {user ? (
                     <button
                       onClick={() => {
@@ -913,6 +1106,16 @@ function App() {
                       Iniciar sesión o registrarte
                     </button>
                   )}
+                  <button
+                    onClick={async () => {
+                      setMenu(null);
+                      if (pwa.canInstall) await pwa.install();
+                      else setModal({ type: "offline" });
+                    }}
+                  >
+                    <Smartphone size={16} />{" "}
+                    {pwa.canInstall ? "Instalar Onda" : "Usar sin conexión"}
+                  </button>
                   <button
                     onClick={() => {
                       setMenu(null);
@@ -942,6 +1145,31 @@ function App() {
             if (menu) setMenu(null);
           }}
         >
+          {pwa.offline && (
+            <div className="pwa-notice" role="status">
+              <WifiOff size={14} />
+              <span>Sin conexión · Escucha la música guardada en este navegador.</span>
+            </div>
+          )}
+          {pwa.needRefresh && (
+            <div className="pwa-notice" role="status">
+              <span>
+                {playing
+                  ? "Hay una nueva versión. Pausa la música para actualizar."
+                  : "Hay una nueva versión de Onda disponible."}
+              </span>
+              <button
+                disabled={playing}
+                onClick={() =>
+                  pwa
+                    .update()
+                    .catch(() => notify("No se pudo actualizar. Vuelve a intentarlo con conexión."))
+                }
+              >
+                Actualizar Onda
+              </button>
+            </div>
+          )}
           {view === "home" && (
             <div className="home-page page-content">
               <div className="page-topline">
@@ -969,6 +1197,20 @@ function App() {
                 </div>
                 <p>Un sonido para cada versión de ti.</p>
               </div>
+              <HomePersonalization
+                history={listening}
+                tracks={tracks}
+                localTracks={localTracks}
+                current={current}
+                progress={progress}
+                playing={playing}
+                onResume={() => {
+                  if (!playing) playTrack(current, queue);
+                }}
+                onPlay={playTrack}
+                onLibrary={() => navigate("device")}
+                renderTracks={renderTracks}
+              />
               <section className="hero">
                 <img
                   className="hero-photo"
@@ -1116,129 +1358,34 @@ function App() {
             />
           )}
           {view === "search" && (
-            <div className="page-content search-page">
-              <span className="eyebrow">DEJA QUE LA CURIOSIDAD SUENE</span>
-              <h1>
-                {query
-                  ? `Resultados para “${query}”`
-                  : activeMood || "Tu próxima obsesión está aquí."}
-              </h1>
-              {query ? (
-                <>
-                  {searchMatches.length > 0 && (
-                    <section>
-                      <SectionHeading title="Canciones" />
-                      <TrackRows
-                        current={current}
-                        playing={playing}
-                        duration={duration}
-                        liked={liked}
-                        playTrack={playTrack}
-                        toggleLike={toggleLike}
-                        setModal={setModal}
-                        list={searchMatches}
-                      />
-                    </section>
-                  )}
-                  {playlistMatches.length > 0 && (
-                    <section>
-                      <SectionHeading title="Playlists" />
-                      <div className="playlist-grid">
-                        {playlistMatches.map((p) => (
-                          <PlaylistCard
-                            openPlaylist={openPlaylist}
-                            playPlaylist={playPlaylist}
-                            key={p.id}
-                            p={p}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  {!searchMatches.length && !playlistMatches.length && (
-                    <div className="empty-state">
-                      <Search size={40} />
-                      <h2>No encontramos esa onda</h2>
-                      <p>Prueba con otro título, Onda Studio o un estado de ánimo.</p>
-                      <button className="secondary-button" onClick={() => setQuery("")}>
-                        Explorar música
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : activeMood ? (
-                <>
-                  <p className="page-description">Encuentra el sonido de este momento.</p>
-                  <TrackRows
-                    current={current}
-                    playing={playing}
-                    duration={duration}
-                    liked={liked}
-                    playTrack={playTrack}
-                    toggleLike={toggleLike}
-                    setModal={setModal}
-                    list={tracks.filter((t) => t.mood === activeMood)}
-                  />
-                  <button
-                    className="secondary-button back-categories"
-                    onClick={() => setActiveMood("")}
-                  >
-                    Volver a explorar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="page-description">
-                    Sigue tu estado de ánimo. Nosotros seguimos el ritmo.
-                  </p>
-                  <div className="mood-grid">
-                    {[
-                      {
-                        title: "Chill",
-                        sub: "Un respiro, por favor.",
-                        cover: "desert",
-                        color: "#a66f4f",
-                      },
-                      {
-                        title: "Focus",
-                        sub: "Entra en tu zona.",
-                        cover: "forest",
-                        color: "#426452",
-                      },
-                      {
-                        title: "Indie",
-                        sub: "Fuera de lo de siempre.",
-                        cover: "flowers",
-                        color: "#916681",
-                      },
-                    ].map((m) => (
-                      <button
-                        className="mood-card"
-                        style={{ background: m.color }}
-                        key={m.title}
-                        onClick={() => setActiveMood(m.title)}
-                      >
-                        <span>{m.title}</span>
-                        <small>{m.sub}</small>
-                        <img src={img(m.cover)} alt="" />
-                        <ArrowUpRight size={24} />
-                      </button>
-                    ))}
-                  </div>
-                  <SectionHeading eyebrow="UN BUEN LUGAR PARA EMPEZAR" title="Abre los oídos" />
-                  <div className="playlist-grid">
-                    {playlists.map((p) => (
-                      <PlaylistCard
-                        openPlaylist={openPlaylist}
-                        playPlaylist={playPlaylist}
-                        key={p.id}
-                        p={p}
-                      />
-                    ))}
-                  </div>
-                </>
+            <SearchPage
+              query={query}
+              setQuery={setQuery}
+              tracks={tracks}
+              localTracks={localTracks}
+              playlists={allPlaylists}
+              renderTracks={renderTracks}
+              renderPlaylist={(p) => (
+                <PlaylistCard
+                  key={p.id}
+                  p={p}
+                  openPlaylist={openPlaylist}
+                  playPlaylist={playPlaylist}
+                />
               )}
-            </div>
+              onOpen={navigate}
+            />
+          )}
+          {["albums", "artists", "album", "artist"].includes(view) && (
+            <CollectionBrowser
+              view={view}
+              collectionId={collectionId}
+              tracks={localTracks}
+              onOpen={navigate}
+              onPlay={playTrack}
+              renderTracks={renderTracks}
+              onImport={() => navigate("device")}
+            />
           )}
 
           {view === "library" && (
@@ -1248,13 +1395,29 @@ function App() {
                 <h1>
                   Tu biblioteca<span>.</span>
                 </h1>
-                <button className="primary-button" onClick={() => setModal({ type: "create" })}>
-                  <Plus size={18} /> Crear playlist
-                </button>
+                <div className="library-page-buttons">
+                  <button className="secondary-button" onClick={() => playlistFile.current.click()}>
+                    <Upload size={15} /> Importar
+                  </button>
+                  <button className="primary-button" onClick={() => setModal({ type: "create" })}>
+                    <Plus size={18} /> Crear playlist
+                  </button>
+                </div>
               </div>
               <p className="page-description">
                 Tus canciones, tus descubrimientos, tu pequeño universo.
               </p>
+              <div className="library-tabs" role="group" aria-label="Secciones de tu biblioteca">
+                <button className="chip selected" aria-pressed="true">
+                  Playlists
+                </button>
+                <button className="chip" onClick={() => navigate("albums")}>
+                  <Disc3 size={14} /> Álbumes
+                </button>
+                <button className="chip" onClick={() => navigate("artists")}>
+                  <Users size={14} /> Artistas
+                </button>
+              </div>
               <div className="playlist-grid library-grid">
                 <PlaylistCard
                   openPlaylist={openPlaylist}
@@ -1359,6 +1522,8 @@ function App() {
                                 type: "rename-playlist",
                                 playlistId: selected.id,
                                 name: selected.title,
+                                description: selected.subtitle || "",
+                                cover: selected.cover,
                               });
                             }}
                           >
@@ -1369,6 +1534,22 @@ function App() {
                         <button onClick={duplicatePlaylist}>
                           <Copy size={15} />
                           Crear una copia
+                        </button>
+                        <button
+                          onClick={() => {
+                            downloadPlaylist(selected, tracks, "json");
+                            setMenu(null);
+                          }}
+                        >
+                          <Download size={15} /> Exportar JSON
+                        </button>
+                        <button
+                          onClick={() => {
+                            downloadPlaylist(selected, tracks, "m3u");
+                            setMenu(null);
+                          }}
+                        >
+                          <Download size={15} /> Exportar M3U
                         </button>
                         {editablePlaylist && (
                           <button
@@ -1546,8 +1727,7 @@ function App() {
               aria-label="Posición de reproducción"
               style={{ "--range-progress": `${(progress / (duration || 44)) * 100}%` }}
               onChange={(e) => {
-                audio.current.currentTime = Number(e.target.value);
-                setProgress(Number(e.target.value));
+                seekPlayback(Number(e.target.value));
               }}
             />
             <span>{formatTime(duration)}</span>
@@ -1607,7 +1787,7 @@ function App() {
           <Search size={21} />
           Buscar
         </button>
-        <button className={view === "library" ? "active" : ""} onClick={() => navigate("library")}>
+        <button className={libraryView ? "active" : ""} onClick={() => navigate("library")}>
           <Library size={21} />
           Biblioteca
         </button>
@@ -1618,12 +1798,19 @@ function App() {
       </nav>
       <audio
         ref={audio}
+        data-queue-id={current.queueId}
         src={current.audioUrl || `${import.meta.env.BASE_URL}audio/${current.audio}.mp3`}
         preload="metadata"
         onTimeUpdate={() => setProgress(audio.current.currentTime)}
         onLoadedMetadata={() => {
           setDuration(audio.current.duration);
-          setProgress(0);
+          if (!applyPendingSeek(audio.current)) setProgress(audio.current.currentTime);
+        }}
+        onPlaying={() => {
+          if (lastListened.current !== current.queueId) {
+            lastListened.current = current.queueId;
+            setListening((previous) => recordListen(previous, current.id));
+          }
         }}
         onEnded={() => {
           if (repeat) {
@@ -1640,6 +1827,14 @@ function App() {
               : "No se pudo cargar el audio. Inténtalo de nuevo.",
           );
         }}
+      />
+      <input
+        type="file"
+        ref={playlistFile}
+        accept=".json,.m3u,.m3u8"
+        hidden
+        aria-label="Importar archivo de playlist"
+        onChange={loadPlaylist}
       />
       {toast && (
         <div className="toast" role="status">
@@ -1737,7 +1932,7 @@ function App() {
             )}
             {modal.type === "rename-playlist" && (
               <>
-                <span className="eyebrow">DALE TU PROPIO NOMBRE</span>
+                <span className="eyebrow">UNA PLAYLIST MUY TUYA</span>
                 <h2 id="modal-title">Renombrar playlist</h2>
                 <form onSubmit={renamePlaylist}>
                   <label htmlFor="rename-playlist">Nombre de la playlist</label>
@@ -1748,10 +1943,134 @@ function App() {
                     required
                     onChange={(event) => setModal({ ...modal, name: event.target.value })}
                   />
+                  <label htmlFor="playlist-description">Descripción</label>
+                  <textarea
+                    id="playlist-description"
+                    value={modal.description || ""}
+                    maxLength={500}
+                    placeholder="La banda sonora de…"
+                    onChange={(event) => setModal({ ...modal, description: event.target.value })}
+                  />
+                  <div className="playlist-edit-cover">
+                    <img src={img(modal.cover)} alt="Portada de la playlist" />
+                    <div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => artworkFile.current.click()}
+                      >
+                        Cambiar portada
+                      </button>
+                      <button
+                        className="text-action"
+                        type="button"
+                        onClick={() => setModal({ ...modal, cover: "night" })}
+                      >
+                        Usar portada de Onda
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    ref={artworkFile}
+                    accept="image/jpeg,image/png,image/webp"
+                    hidden
+                    aria-label="Seleccionar portada de playlist"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      const playlistId = modal.playlistId;
+                      try {
+                        const cover = await playlistArtwork(file);
+                        setModal((previous) =>
+                          previous?.playlistId === playlistId && previous.type === "rename-playlist"
+                            ? { ...previous, cover }
+                            : previous,
+                        );
+                      } catch (error) {
+                        notify(error.message);
+                      }
+                    }}
+                  />
                   <button className="primary-button" type="submit">
                     Guardar nombre
                   </button>
                 </form>
+              </>
+            )}
+            {modal.type === "import-playlist" && (
+              <>
+                <span className="eyebrow">TRAE TUS SELECCIONES</span>
+                <h2 id="modal-title">{modal.imported.title}</h2>
+                <p>
+                  La lista se enlaza con canciones que ya tienes en este navegador. No incluye ni
+                  descarga archivos de audio.
+                </p>
+                <div className="playlist-transfer-summary">
+                  <div>
+                    <strong>{modal.imported.tracks.length}</strong>Canciones encontradas
+                  </div>
+                  <div>
+                    <strong>{modal.imported.missing}</strong>Archivos no disponibles
+                  </div>
+                  <div>
+                    <strong>{modal.imported.ambiguous}</strong>Nombres ambiguos omitidos
+                  </div>
+                  <div>
+                    <strong>{modal.imported.remote + modal.imported.duplicates}</strong>URLs o
+                    duplicadas omitidas
+                  </div>
+                </div>
+                {(modal.imported.missing > 0 || modal.imported.ambiguous > 0) && (
+                  <p className="modal-footnote">
+                    Primero añade los archivos desde Mi música y vuelve a importar la lista. Si hay
+                    nombres repetidos, usa JSON de Onda para identificarlos.
+                  </p>
+                )}
+                <button
+                  className="primary-button"
+                  disabled={!modal.imported.tracks.length}
+                  onClick={finishImport}
+                >
+                  Importar playlist <Upload size={16} />
+                </button>
+              </>
+            )}
+            {modal.type === "offline" && (
+              <>
+                <div className="device-illustration">
+                  <Smartphone size={58} />
+                </div>
+                <h2 id="modal-title">Tu música, también sin conexión.</h2>
+                <p>
+                  {pwa.offlineReady
+                    ? "Onda está preparada para abrir sin internet en este navegador."
+                    : pwa.supported
+                      ? "Abre Onda con internet una vez para preparar sus archivos. La instalación está disponible en la versión publicada o de producción."
+                      : "Abre la web mediante HTTPS o localhost en un navegador compatible para preparar el acceso sin conexión."}
+                </p>
+                <p>
+                  Las canciones que añadas desde Mi música se guardan en este dispositivo. Abre la
+                  misma dirección y usa el mismo navegador para encontrarlas.
+                </p>
+                <p className="modal-footnote">
+                  Para instalar, usa «Instalar Onda» o «Añadir a pantalla de inicio» en el menú de
+                  tu navegador. No borres los datos del sitio: al hacerlo se elimina la biblioteca
+                  local. Las cuentas requieren internet.
+                </p>
+                {pwa.error && <p role="status">{pwa.error}</p>}
+                {pwa.canInstall && (
+                  <button className="primary-button" onClick={() => pwa.install()}>
+                    Instalar Onda <Download size={16} />
+                  </button>
+                )}
+                <span className={`pwa-status ${pwa.offlineReady ? "ready" : ""}`}>
+                  <CheckCircle2 size={14} />
+                  {pwa.offlineReady
+                    ? "Lista para usar sin conexión"
+                    : "Preparación sin conexión pendiente"}
+                </span>
               </>
             )}
             {modal.type === "delete-playlist" && (
@@ -1848,7 +2167,9 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(
-  <AccountGate>
-    <App />
-  </AccountGate>,
+  <PwaProvider>
+    <AccountGate>
+      <App />
+    </AccountGate>
+  </PwaProvider>,
 );
