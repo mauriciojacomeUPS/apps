@@ -198,7 +198,9 @@ export async function runDownloadChecks(
               rejected.status === 429
                 ? "YouTube limitó las solicitudes desde el servidor (429)."
                 : "YouTube rechazó el acceso desde el servidor (403).";
-            restricted.add(row.provider);
+            // A player API 403 can be specific to this Cobalt client. Keep the
+            // single yt-dlp comparison; a 429 or explicit challenge stops both.
+            if (rejected.status === 429) restricted.add(row.provider);
           }
         }
       }

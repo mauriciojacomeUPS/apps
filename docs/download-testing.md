@@ -14,17 +14,17 @@ La ronda se ejecuta **una vez por arranque**, no al consultar `/healthz`. No exi
 
 ## Qué se comprueba
 
-| Caso             | Enlace fijo                                                                                | Motor                                                         |
-| ---------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| YouTube          | [Me at the zoo](https://www.youtube.com/watch?v=jNQXAC9IVRw)                               | Cobalt; después yt-dlp si la fuente no ha rechazado el acceso |
-| Internet Archive | [Audio de prueba](https://archive.org/details/testmp3testfile)                             | yt-dlp                                                        |
-| SoundCloud       | [Lostin Powers — She So Heavy](https://soundcloud.com/ethmusic/lostin-powers-she-so-heavy) | yt-dlp                                                        |
-| Bandcamp         | [youtube-dl test song](https://youtube-dl.bandcamp.com/track/youtube-dl-test-song)         | yt-dlp                                                        |
-| Vimeo            | [The New Vimeo Player](https://vimeo.com/76979871)                                         | yt-dlp                                                        |
+| Caso             | Enlace fijo                                                                                | Motor                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| YouTube          | [Me at the zoo](https://www.youtube.com/watch?v=jNQXAC9IVRw)                               | Cobalt; después una comparación con yt-dlp, salvo verificación o límite explícito |
+| Internet Archive | [Audio de prueba](https://archive.org/details/testmp3testfile)                             | yt-dlp                                                                            |
+| SoundCloud       | [Lostin Powers — She So Heavy](https://soundcloud.com/ethmusic/lostin-powers-she-so-heavy) | yt-dlp                                                                            |
+| Bandcamp         | [youtube-dl test song](https://youtube-dl.bandcamp.com/track/youtube-dl-test-song)         | yt-dlp                                                                            |
+| Vimeo            | [The New Vimeo Player](https://vimeo.com/76979871)                                         | yt-dlp                                                                            |
 
 Cada caso recibe hasta 60 segundos, con un máximo total de cinco minutos y un solo audio a la vez. El archivo debe tener entre 1 byte y 8 MiB, convertirse a M4A y decodificarse por completo con FFmpeg. Solo entonces aparece `verifiedAudio: true`, con su tamaño y SHA-256. Los archivos temporales se borran al terminar; no se publican los audios de prueba ni se incorporan automáticamente a las bibliotecas.
 
-Una restricción explícita de la fuente detiene nuevos intentos contra esa misma fuente durante la ronda. No se cambian formatos para insistir tras una verificación contra bots o un límite de solicitudes. Otras fuentes siguen sus pruebas independientes.
+Una verificación contra bots, un límite de solicitudes o un requisito de acceso explícitos detienen nuevos intentos contra esa misma fuente durante la ronda. Un HTTP 403 del endpoint de reproducción de Cobalt se registra como rechazo de ese cliente: se conserva una sola comparación independiente con yt-dlp, porque esa respuesta no demuestra un bloqueo de todas las rutas. No se cambian formatos para insistir tras una verificación contra bots o un límite de solicitudes. Otras fuentes siguen sus pruebas independientes.
 
 ## Diagnóstico de YouTube
 

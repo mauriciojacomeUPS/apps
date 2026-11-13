@@ -35,38 +35,39 @@ test("real checks require verified audio, redact unexpected failures and stop th
   assert.equal(result.results[2].verifiedAudio, true);
 });
 
-test("observed YouTube 403 stops another engine while failures of other sites remain independent", async () => {
-  const network = [],
-    calls = [];
-  const result = await runDownloadChecks(
-    { ONDA_COBALT_YOUTUBE_CLIENT: "ANDROID" },
-    {
-      cobaltNetwork: () => network,
-      runner: async (_env, row) => {
-        calls.push(row.id);
-        if (row.id === "youtube-cobalt") {
-          network.push({
-            sequence: 1,
-            origin: "https://www.youtube.com",
-            path: "/youtubei/v1/player",
-            status: 403,
-            error: null,
-          });
-          throw Object.assign(new MediaError("No audio.", "source-unavailable"), {
-            upstreamCode: "error.api.fetch.fail",
-          });
-        }
-        return verified;
+for (const status of [403, 429])
+  test(`a Cobalt player ${status} distinguishes one engine's rejection from a provider rate limit`, async () => {
+    const network = [],
+      calls = [];
+    const result = await runDownloadChecks(
+      { ONDA_COBALT_YOUTUBE_CLIENT: "ANDROID" },
+      {
+        cobaltNetwork: () => network,
+        runner: async (_env, row) => {
+          calls.push(row.id);
+          if (row.id === "youtube-cobalt") {
+            network.push({
+              sequence: 1,
+              origin: "https://www.youtube.com",
+              path: "/youtubei/v1/player",
+              status,
+              error: null,
+            });
+            throw Object.assign(new MediaError("No audio.", "source-unavailable"), {
+              upstreamCode: "error.api.fetch.fail",
+            });
+          }
+          return verified;
+        },
       },
-    },
-  );
-  assert.equal(calls.includes("youtube-ytdlp"), false);
-  assert.equal(result.results[0].code, "source-forbidden");
-  assert.equal(result.results[0].upstreamCode, "error.api.fetch.fail");
-  assert.equal(result.results[0].client, "ANDROID");
-  assert.equal(result.results[0].network[0].status, 403);
-  assert.equal(result.passed, 4);
-});
+    );
+    assert.equal(calls.includes("youtube-ytdlp"), status === 403);
+    assert.equal(result.results[0].code, status === 403 ? "source-forbidden" : "rate-limit");
+    assert.equal(result.results[0].upstreamCode, "error.api.fetch.fail");
+    assert.equal(result.results[0].client, "ANDROID");
+    assert.equal(result.results[0].network[0].status, status);
+    assert.equal(result.passed, status === 403 ? 5 : 4);
+  });
 
 test("download tests cancel on timeout and stop when the server shuts down", async () => {
   const wait = async (_env, _row, signal) =>
