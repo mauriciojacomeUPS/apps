@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -35,10 +35,11 @@ async function start(base, client, url = "https://youtu.be/aaaaaaaaaaa") {
     body: JSON.stringify({ url, format: "m4a" }),
   });
 }
-async function fixtureServer({ limits = {}, ...extra } = {}) {
+async function fixtureServer({ limits = {}, failure = "", ...extra } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "onda-cloud-fixture-"));
   const executable = join(dir, "yt-dlp");
   const audio = resolve("public/audio/sunset.mp3");
+  const calls = join(dir, "calls.log");
   await writeFile(
     executable,
     "#!/usr/bin/env node\n" +
@@ -46,6 +47,12 @@ async function fixtureServer({ limits = {}, ...extra } = {}) {
         'const fs=require("node:fs");const args=process.argv.slice(2);',
         'if(args.includes("--dump-single-json")){console.log(JSON.stringify({title:"Test list",entries:[{id:"aaaaaaaaaaa",title:"One"},{id:"bbbbbbbbbbb",title:"Two"}]}));process.exit(0);}',
         'const id=new URL(args.at(-1)).searchParams.get("v");',
+        "fs.appendFileSync(" + JSON.stringify(calls) + ', args.at(-1)+"\\n");',
+        "if(" +
+          JSON.stringify(failure) +
+          "){console.error(" +
+          JSON.stringify(failure) +
+          ");process.exit(1);}",
         'const write=()=>{const file=args[args.indexOf("-o")+1].replace("%(ext)s","mp3");fs.copyFileSync(' +
           JSON.stringify(audio) +
           ',file);console.log(JSON.stringify({filepath:file,title:"Sunset",artist:"Onda Studio"}));};',
@@ -69,6 +76,7 @@ async function fixtureServer({ limits = {}, ...extra } = {}) {
     instance,
     host,
     base: host + "/v1/media",
+    downloadCalls: async () => (await readFile(calls, "utf8")).trim().split("\n"),
     close: async () => {
       await instance.close();
       await rm(dir, { recursive: true, force: true });
@@ -91,6 +99,51 @@ test("cloud startup requires a private key and exact trusted origins", async () 
     /exact HTTPS origins/,
   );
 });
+
+test(
+  "cloud stops videos and playlists after a source restriction without changing format or requesting the next track",
+  {
+    skip: requiresTools,
+    timeout: 30000,
+  },
+  async () => {
+    for (const [failure, code] of [
+      ["ERROR: [youtube] Sign in to confirm you’re not a bot (HTTP Error 403)", "source-challenge"],
+      ["ERROR: HTTP Error 429: Too Many Requests", "rate-limit"],
+    ]) {
+      const fixture = await fixtureServer({ failure, limits: { parallel: 1 } });
+      try {
+        let response = await start(
+          fixture.base,
+          alice,
+          "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=RDaaaaaaaaaaa&start_radio=1",
+        );
+        assert.equal(response.status, 202);
+        const video = await ready(fixture.base, (await response.json()).id, alice);
+        assert.equal(video.state, "error");
+        assert.equal(video.code, code);
+        assert.deepEqual(await fixture.downloadCalls(), [
+          "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+        ]);
+        response = await start(
+          fixture.base,
+          alice,
+          "https://www.youtube.com/playlist?list=PL0123456789",
+        );
+        assert.equal(response.status, 202);
+        const list = await ready(fixture.base, (await response.json()).id, alice);
+        assert.equal(list.state, "error");
+        assert.equal(list.code, code);
+        assert.deepEqual(await fixture.downloadCalls(), [
+          "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+          "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+        ]);
+      } finally {
+        await fixture.close();
+      }
+    }
+  },
+);
 
 test("health stays available while one startup probe runs and exposes only sanitized results", async () => {
   let resolveProbe,

@@ -11,7 +11,11 @@ export default function MediaServerSettings({
 }) {
   const [form, setForm] = useState(connection);
   const [failure, setFailure] = useState("");
+  const [expanded, setExpanded] = useState(Boolean(connection.url && !connection.key));
   useEffect(() => setForm(connection), [connection]);
+  useEffect(() => {
+    if (error || (connection.url && !connection.key)) setExpanded(true);
+  }, [error, connection.url, connection.key]);
   const submit = (event) => {
     event.preventDefault();
     try {
@@ -24,7 +28,8 @@ export default function MediaServerSettings({
   return (
     <details
       className="media-server-settings"
-      open={connection.url && !connection.key ? true : undefined}
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
       <summary>
         <Cloud size={16} />

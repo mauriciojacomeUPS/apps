@@ -15,6 +15,13 @@ test("canonicalizes video and playlist links before handing them to the download
     youtubeSource("https://music.youtube.com/watch?v=2eZVbrO6Z1M&list=PLexample"),
     video,
   );
+  assert.deepEqual(
+    youtubeSource(
+      "https://www.youtube.com/watch?v=2eZVbrO6Z1M&list=RD2eZVbrO6Z1M&start_radio=1&pp=ygUMI",
+      { preferPlaylist: false },
+    ),
+    video,
+  );
   assert.deepEqual(youtubeSource("https://www.youtube.com/playlist?list=PL0123456789&si=test"), {
     url: "https://www.youtube.com/playlist?list=PL0123456789",
     playlist: true,
@@ -63,6 +70,9 @@ test("downloader distinguishes a blocked proxy from source rate limits and priva
     /requiere acceso/,
   );
   for (const [stderr, code] of [
+    ["Sign in to confirm you’re not a bot", "source-challenge"],
+    ["HTTP Error 403: complete a CAPTCHA", "source-challenge"],
+    ["We detected unusual traffic", "source-challenge"],
     ["Sign in to access this private video", "access-required"],
     ["HTTP Error 403: Forbidden", "source-forbidden"],
     ["Requested format is not available", "formats-unavailable"],

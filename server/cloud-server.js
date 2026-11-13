@@ -16,6 +16,7 @@ const PROBE_REASONS = new Map([
   ],
   ["proxy-blocked", "La red del servidor bloqueó la conexión con YouTube."],
   ["rate-limit", "YouTube limitó las solicitudes desde este servidor."],
+  ["source-challenge", "YouTube pidió una verificación contra bots a este servidor."],
   ["access-required", "YouTube exige acceso o restringe el video de prueba."],
   ["source-forbidden", "YouTube rechazó la solicitud desde este servidor (403)."],
   ["formats-unavailable", "YouTube no ofreció un formato de audio disponible para la prueba."],

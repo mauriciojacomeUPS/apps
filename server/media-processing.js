@@ -275,9 +275,14 @@ export function youtubeError(error) {
       "La red de este servidor bloquea la conexión con YouTube. Revisa el acceso a internet del equipo que prepara la descarga.",
       "proxy-blocked",
     );
-  if (/not a bot|HTTP Error 429|too many requests|captcha/i.test(detail)) {
+  if (/not a bot|captcha|unusual traffic|automated queries/i.test(detail))
     return new MediaError(
-      "YouTube limitó las solicitudes. Vuelve a intentarlo más tarde.",
+      "YouTube pide una verificación contra bots a este servidor. La descarga desde aquí no está disponible para esta solicitud.",
+      "source-challenge",
+    );
+  if (/HTTP Error 429|too many requests/i.test(detail)) {
+    return new MediaError(
+      "YouTube respondió con un límite de solicitudes (429). Espera antes de volver a probar.",
       "rate-limit",
     );
   }
@@ -395,19 +400,9 @@ async function downloadVideo(
   }
   let metadata;
   try {
-    try {
-      metadata = await download(
-        source.provider === "youtube" ? "bestaudio[ext=m4a]/bestaudio" : "bestaudio/best",
-      );
-    } catch (error) {
-      if (
-        source.provider !== "youtube" ||
-        job.controller.signal.aborted ||
-        !/HTTP Error 403/i.test(error.stderr || "")
-      )
-        throw error;
-      metadata = await download("bestaudio[ext=webm]");
-    }
+    metadata = await download(
+      source.provider === "youtube" ? "bestaudio[ext=m4a]/bestaudio" : "bestaudio/best",
+    );
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
     if (error instanceof MediaError) throw error;
@@ -479,7 +474,7 @@ export async function downloadMedia(tools, job, source) {
   const files = [];
   const skipped = [];
   let bytes = 0;
-  let stopReason;
+  let stopReason, stopCode;
   const capped = info.entries.length > maximum;
   if (capped) job.notice = "Este servidor procesa hasta " + maximum + " pistas por operación.";
   job.total = entries.length;
@@ -524,7 +519,10 @@ export async function downloadMedia(tools, job, source) {
         const reason =
           result.reason instanceof MediaError ? result.reason.message : "No se pudo procesar.";
         skipped.push(`${number}. ${title} — ${reason}`);
-        if (result.reason?.code === "rate-limit") stopReason = result.reason.message;
+        if (["rate-limit", "source-challenge", "proxy-blocked"].includes(result.reason?.code)) {
+          stopReason = result.reason.message;
+          stopCode = result.reason.code;
+        }
         continue;
       }
       const file = result.value;
@@ -547,7 +545,10 @@ export async function downloadMedia(tools, job, source) {
     }
   }
   if (!files.length) {
-    throw new MediaError(stopReason || "No se pudo descargar ningún video de esta playlist.");
+    throw new MediaError(
+      stopReason || "No se pudo descargar ningún video de esta playlist.",
+      stopCode,
+    );
   }
   job.message = "Preparando el archivo ZIP…";
   job.saved = files.length;
@@ -595,7 +596,13 @@ export async function runSourceProbe(env, { signal } = {}) {
       provider: "youtube",
       status:
         !controller.signal.aborted &&
-        ["proxy-blocked", "rate-limit", "access-required", "source-forbidden"].includes(error.code)
+        [
+          "proxy-blocked",
+          "rate-limit",
+          "source-challenge",
+          "access-required",
+          "source-forbidden",
+        ].includes(error.code)
           ? "blocked"
           : "failed",
       code: controller.signal.aborted ? "probe-timeout" : error.code || "probe-failed",

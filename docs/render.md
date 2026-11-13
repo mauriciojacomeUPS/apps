@@ -58,6 +58,8 @@ Este comando consulta el resultado del arranque sin pedir la clave. Un reinicio 
 
 Si falla, `sourceCheck.code` y su mensaje distinguen el tiempo agotado (`probe-timeout`), límites de solicitudes (`rate-limit`), acceso requerido, rechazo 403, errores de red, falta de formatos o problemas de conversión. `elapsedMs` indica la duración. Render registra el mismo diagnóstico sin claves, rutas locales ni la salida privada del extractor.
 
+`source-challenge` significa que YouTube pidió una verificación contra bots; es distinto de un límite HTTP 429. Onda detiene la lista ante estas restricciones y no vuelve a solicitar el video con otro formato tras un rechazo. Con «Descargar toda la playlist» desmarcado, elimina `list`, `start_radio` y otros parámetros y procesa únicamente el video. Cambiar MP3 por M4A no elimina una restricción de acceso. El panel permite seleccionar audio del dispositivo o probar otra fuente, sin dar por garantizada su disponibilidad.
+
 YouTube puede rechazar direcciones de centros de datos, pedir autenticación o limitar solicitudes. Si ocurre, Render Free no garantiza resolverlo. La prueba de este entorno de desarrollo encontró un bloqueo de red hacia YouTube; no demuestra que Render esté bloqueado ni que allí funcione.
 
 ## Fuentes y límites

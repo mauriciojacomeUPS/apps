@@ -43,6 +43,70 @@ const status = (job) => ({
   },
 });
 
+for (const [code, message] of [
+  ["source-challenge", "YouTube pide una verificación contra bots a este servidor."],
+  ["rate-limit", "YouTube respondió con un límite de solicitudes (429)."],
+]) {
+  test(`YouTube ${code} explains the restriction and offers device files or another source without restarting the job`, async ({
+    page,
+    baseURL,
+  }) => {
+    const headers = cors(baseURL);
+    let starts = 0;
+    const working = { id: jobId, state: "working", provider: "youtube", message: "Preparando…" };
+    await page.route(cloud + "/**", async (route) => {
+      const request = route.request(),
+        url = new URL(request.url());
+      if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+      if (url.pathname === "/healthz")
+        return route.fulfill({
+          headers,
+          json: { ok: true, sourceCheck: { status: "blocked", code, message } },
+        });
+      if (url.pathname === "/v1/media/status")
+        return route.fulfill({ headers, json: status(null) });
+      if (url.pathname === "/v1/media/jobs" && request.method() === "POST") {
+        starts++;
+        return route.fulfill({ status: 202, headers, json: working });
+      }
+      if (url.pathname === "/v1/media/jobs/" + jobId)
+        return route.fulfill({ headers, json: { ...working, state: "error", code, message } });
+      return route.fulfill({ status: 404, headers, json: { error: "Unexpected request" } });
+    });
+    await page.goto("./#device");
+    await configure(page);
+    await page
+      .getByLabel("Enlace del video o la playlist", { exact: true })
+      .fill("https://www.youtube.com/watch?v=aaaaaaaaaaa");
+    await page.getByRole("button", { name: "Preparar descarga", exact: true }).click();
+    await expect(page.locator(".media-tools-error")).toHaveText(message);
+    await expect(
+      page.getByRole("heading", {
+        name: "La descarga desde YouTube está restringida.",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const choosing = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Elegir audio del dispositivo", exact: true }).click();
+    await (
+      await choosing
+    ).setFiles({
+      name: "Mi audio.mp3",
+      mimeType: "audio/mpeg",
+      buffer: await readFile("public/audio/sunset.mp3"),
+    });
+    await expect(page.locator(".device-track")).toHaveCount(1);
+    await page.getByRole("button", { name: "Probar otro sitio", exact: true }).click();
+    await expect(page.getByLabel("Enlace público de audio o video", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Otros sitios", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.locator(".media-tools-error")).toHaveCount(0);
+    expect(starts).toBe(1);
+  });
+}
+
 test("cloud connection keeps keys private, requests public sources with isolated credentials and saves playable audio", async ({
   page,
   baseURL,
@@ -194,6 +258,12 @@ test("an incorrect cloud key is actionable and the online service never uploads 
   page,
   baseURL,
 }) => {
+  await page.addInitScript((url) => {
+    localStorage.setItem(
+      "onda-media-server:guest",
+      JSON.stringify({ url, key: "", remember: false }),
+    );
+  }, cloud);
   const headers = cors(baseURL),
     uploadCalls = [];
   await page.route(cloud + "/**", async (route) => {

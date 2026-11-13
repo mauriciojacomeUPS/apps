@@ -155,6 +155,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
     setMode(next);
     setFile(null);
     setError("");
+    if (job?.state === "error") setJob(null);
   }
   async function start(event) {
     event.preventDefault();
@@ -565,6 +566,30 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
           {error || job.message}
         </p>
       )}
+      {!error &&
+        job?.state === "error" &&
+        ["source-challenge", "rate-limit"].includes(job.code) && (
+          <div className="media-source-help">
+            <h3>La descarga desde YouTube está restringida.</h3>
+            <p>
+              YouTube puede restringir el acceso desde servidores como Render. Cambiar de formato no
+              resuelve esta respuesta. Puedes añadir tus archivos o probar un enlace público de otra
+              fuente; su disponibilidad depende de cada sitio.
+            </p>
+            <div className="media-tools-actions">
+              <button className="media-tools-action" type="button" onClick={onChooseFiles}>
+                <FolderOpen size={16} /> Elegir audio del dispositivo
+              </button>
+              <button
+                className="media-tools-action"
+                type="button"
+                onClick={() => changeMode("links")}
+              >
+                <Link2 size={16} /> Probar otro sitio
+              </button>
+            </div>
+          </div>
+        )}
     </section>
   );
 }
