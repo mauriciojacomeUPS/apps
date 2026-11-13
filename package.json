@@ -8,14 +8,17 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.js",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "start:media": "node server/cloud-server.js",
+    "check:sources": "node server/check-sources.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
     "lucide-react": "^0.468.0",
     "music-metadata": "^12.3.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "yazl": "3.3.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
@@ -27,7 +30,6 @@
     "workbox-precaching": "^7.4.1",
     "workbox-range-requests": "^7.4.1",
     "workbox-routing": "^7.4.1",
-    "workbox-window": "^7.4.1",
-    "yazl": "3.3.1"
+    "workbox-window": "^7.4.1"
   }
 }

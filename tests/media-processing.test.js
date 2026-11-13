@@ -58,3 +58,32 @@ test("downloader distinguishes a blocked proxy from source rate limits and priva
     /requiere acceso/,
   );
 });
+
+test("public source validation admits bounded provider URLs and rejects generic proxies, private or unsupported links", async () => {
+  const { mediaSource } = await import("../server/media-processing.js");
+  assert.deepEqual(mediaSource("https://soundcloud.com/banda/cancion?utm_source=x"), {
+    provider: "soundcloud",
+    url: "https://soundcloud.com/banda/cancion",
+    playlist: false,
+  });
+  assert.equal(mediaSource("https://soundcloud.com/banda/sets/disco").playlist, true);
+  assert.equal(mediaSource("https://banda.bandcamp.com/album/disco").playlist, true);
+  assert.equal(mediaSource("https://banda.bandcamp.com/track/cancion").provider, "bandcamp");
+  assert.deepEqual(mediaSource("https://player.vimeo.com/video/1234"), {
+    provider: "vimeo",
+    url: "https://vimeo.com/1234",
+    playlist: false,
+  });
+  assert.equal(mediaSource("https://archive.org/details/public-audio").provider, "archive");
+  for (const url of [
+    "https://soundcloud.com.example.org/banda/cancion",
+    "https://soundcloud.com/banda/cancion?secret_token=s-private",
+    "https://soundcloud.com/redirect",
+    "https://archive.org/download/item/list.m3u",
+    "https://user:pass@vimeo.com/1234",
+    "http://vimeo.com/1234",
+    "https://vimeo.com:8443/1234",
+    "https://127.0.0.1/private.mp3",
+  ])
+    assert.throws(() => mediaSource(url), undefined, url);
+});

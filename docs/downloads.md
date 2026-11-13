@@ -4,7 +4,7 @@
 
 La herramienta original solo mostraba formularios cuando se abría en `localhost` y encontraba FFmpeg/yt-dlp. En GitHub Pages, el panel quedaba reducido a su título y una nota. GitHub Pages publica archivos estáticos y no ejecuta el servicio Node de conversión/descarga. `localhost` en el iPhone se refiere al propio teléfono, no al PC.
 
-El panel ahora conserva sus tres opciones visibles y explica el estado. Puedes importar tus audios y listas en la web publicada sin que exista un servidor de descargas. Los archivos permanecen locales; Supabase sigue siendo solo para usuarios.
+El panel ahora conserva sus opciones visibles y explica el estado. Puedes importar tus audios y listas en la web publicada sin que exista un servidor de descargas. Los archivos permanecen locales; Supabase sigue siendo solo para usuarios.
 
 ## Escuchar en iPhone hoy
 
@@ -47,12 +47,17 @@ Otra canción,Otra banda
 
 Se admiten comas, punto y coma y tabuladores, BOM UTF-8, campos entre comillas y saltos de línea escapados. Límites: 5 MB, 10 000 canciones y 128 columnas. Los nombres con comas o barras (como AC/DC) no se separan arbitrariamente. El importador no abre URLs ni ejecuta fórmulas del archivo y nunca solicita audio a Spotify.
 
-## Descargas de YouTube directamente desde la web en iPhone
+## Descargas directamente desde la web en iPhone
 
-Hace falta un servicio de descargas accesible por HTTPS además del sitio estático. La implementación actual mantiene el servicio en loopback del PC; no expone sus rutas a la red ni solicita música a Supabase. Un servicio online requiere elegir hosting y configurar acceso antes de activarlo. Importar audios y CSV no depende de ese servicio.
+Hace falta un servicio de descargas accesible por HTTPS además del sitio estático. Onda incluye un servicio independiente para **Render Free**, con Docker, FFmpeg y yt-dlp, límites para el plan gratuito y acceso mediante clave privada. Sigue [los pasos de despliegue y conexión](render.md). El servidor local del PC conserva sus protecciones de loopback; no se expone Vite a internet.
+
+Desde **Conectar servidor Render**, introduce la dirección HTTPS y la clave generada por Render. El servicio comprueba YouTube al arrancar e informa si pudo obtener audio, si fue bloqueado o si la prueba falló. Hasta obtener ese resultado no se da por verificada una descarga real desde Render. **Otros sitios** permite probar enlaces públicos de SoundCloud, Bandcamp, Vimeo e Internet Archive; cada fuente puede restringir su disponibilidad.
+
+Las descargas online admiten 32 MB por audio y 128 MB/25 pistas por lista, una operación a la vez y diez minutos para guardar el resultado. La conexión puede tardar mientras despierta Render Free. Los archivos que importas desde Archivos no se suben al servicio. Importar audios y CSV sigue funcionando sin servidor.
 
 ## Verificación
 
 - Pruebas de CSV: comillas, delimitadores, versiones, nombres de artistas, duplicados, coincidencias ambiguas y límites.
 - Prueba real de FFmpeg con un extractor local controlado: una playlist conserva el ZIP y sus pistas individuales, omite una pista fallida y respeta el origen de las solicitudes. No depende de disponibilidad de YouTube.
 - Pruebas de navegador: host remoto con agente de usuario iPhone, selector de archivos, importación CSV, incorporación secuencial de pistas con duplicados y contrato Web Share con bytes reales. La simulación de Web Share verifica los datos entregados al navegador; no sustituye una prueba de la hoja nativa en un iPhone físico.
+- Pruebas del servicio online: clave privada, CORS, separación de trabajos por perfil/dispositivo, enlaces temporales, caducidad, límites y rechazo de subida de archivos. Las pruebas de navegador con un servicio HTTPS simulado verifican guardado y reproducción local del audio recibido, sin incluir la clave en los enlaces.

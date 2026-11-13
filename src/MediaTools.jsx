@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AudioLines,
   Download,
@@ -11,6 +11,14 @@ import {
   Smartphone,
 } from "lucide-react";
 import "./media-tools.css";
+import { useAuth } from "./AccountGate";
+import MediaServerSettings from "./MediaServerSettings";
+import {
+  createMediaClient,
+  mediaClientToken,
+  readMediaConnection,
+  saveMediaConnection,
+} from "./media-client";
 
 const endpoint = import.meta.env.BASE_URL + "__onda-media";
 const local = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
@@ -20,22 +28,34 @@ const ios =
 const fileLimit = 100 * 1024 * 1024;
 const formats = ["MP3", "M4A", "FLAC", "WAV"];
 
-async function readStatus(path, options) {
-  const response = await fetch(endpoint + path, options);
-  if (!response.headers.get("content-type")?.includes("application/json"))
-    throw new Error("El servicio de descargas no está disponible en esta dirección.");
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "No se pudo completar la operación.");
-  return data;
-}
-
 export default function MediaTools({ importing, onImport, onChooseFiles, onImportPlaylist }) {
+  const { user } = useAuth();
+  const owner = user?.id || "guest";
+  const [connection, setConnection] = useState(() =>
+    readMediaConnection(owner, { defaultUrl: import.meta.env.VITE_MEDIA_API_URL || "" }),
+  );
+  const [clientToken] = useState(() => mediaClientToken(owner));
+  const [retry, setRetry] = useState(0);
+  const [connectionError, setConnectionError] = useState("");
+  const [probe, setProbe] = useState(null);
+  const client = useMemo(
+    () =>
+      createMediaClient({
+        url: connection.url,
+        key: connection.key,
+        clientToken,
+        localBase: endpoint,
+      }),
+    [connection.url, connection.key, clientToken],
+  );
   const [mode, setMode] = useState("youtube");
   const [url, setUrl] = useState("");
   const [fullPlaylist, setFullPlaylist] = useState(true);
   const [file, setFile] = useState(null);
   const [format, setFormat] = useState(ios ? "m4a" : "mp3");
-  const [availability, setAvailability] = useState(local ? null : {});
+  const [availability, setAvailability] = useState(
+    local || (connection.url && connection.key) ? null : {},
+  );
   const [job, setJob] = useState(null);
   const [posting, setPosting] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -47,18 +67,44 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
   const importController = useRef(null);
 
   useEffect(() => {
-    if (!local) return;
+    if ((!local && !connection.url) || (connection.url && !connection.key)) {
+      setAvailability({});
+      return;
+    }
     const controller = new AbortController();
-    readStatus("/status", { signal: controller.signal })
+    setAvailability(null);
+    setConnectionError("");
+    setJob(null);
+    setProbe(null);
+    client
+      .json("/status", { signal: controller.signal })
       .then((status) => {
         setAvailability(status);
         setJob(status.job);
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setAvailability({});
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setAvailability({});
+          setConnectionError(error.message);
+        }
       });
-    return () => controller.abort();
-  }, []);
+    let timer;
+    if (client.remote) {
+      const health = async () => {
+        try {
+          const value = await client.health();
+          if (controller.signal.aborted) return;
+          setProbe(value.sourceCheck);
+          if (value.sourceCheck?.status === "checking") timer = setTimeout(health, 5000);
+        } catch {}
+      };
+      health();
+    }
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [client, retry]);
   useEffect(() => () => importController.current?.abort(), []);
 
   const jobId = job?.id;
@@ -74,7 +120,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
     let timer;
     async function poll() {
       try {
-        const status = await readStatus("/jobs/" + jobId, { signal: controller.signal });
+        const status = await client.json("/jobs/" + jobId, { signal: controller.signal });
         setJob(status);
         if (status.state === "working") timer = setTimeout(poll, 1000);
       } catch (failure) {
@@ -89,11 +135,14 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
       clearTimeout(timer);
       controller.abort();
     };
-  }, [jobId, working]);
+  }, [jobId, working, client]);
 
   const busy = posting || working || adding || preparingShare;
-  const enabled = mode === "youtube" ? availability?.youtube : availability?.convert;
-  const downloadUrl = jobId ? endpoint + "/jobs/" + jobId + "/result" : "";
+  const linkMode = mode === "youtube" || mode === "links";
+  const enabled = linkMode
+    ? availability?.youtube
+    : availability?.convert && availability?.uploads !== false;
+  const downloadUrl = jobId ? client.downloadUrl(job) : "";
   const playlist = job?.result?.type === "application/zip";
   let linkHasPlaylist = false;
   try {
@@ -119,25 +168,24 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
     setPosting(true);
     setError("");
     try {
-      const options =
-        mode === "youtube"
-          ? {
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                url: url.trim(),
-                format,
-                playlist: linkHasPlaylist && fullPlaylist,
-              }),
-            }
-          : {
-              headers: {
-                "Content-Type": "application/octet-stream",
-                "X-Onda-Format": format,
-                "X-Onda-Filename": encodeURIComponent(file.name),
-              },
-              body: file,
-            };
-      const next = await readStatus("/jobs", { ...options, method: "POST" });
+      const options = linkMode
+        ? {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: url.trim(),
+              format,
+              playlist: linkHasPlaylist && fullPlaylist,
+            }),
+          }
+        : {
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "X-Onda-Format": format,
+              "X-Onda-Filename": encodeURIComponent(file.name),
+            },
+            body: file,
+          };
+      const next = await client.json("/jobs", { ...options, method: "POST" });
       setJob(next);
     } catch (failure) {
       setError(failure.message);
@@ -148,15 +196,14 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
   async function cancel() {
     setError("");
     try {
-      setJob(await readStatus("/jobs/" + jobId, { method: "DELETE" }));
+      setJob(await client.json("/jobs/" + jobId, { method: "DELETE" }));
     } catch (failure) {
       setError(failure.message);
     }
   }
   async function resultFile(item, signal) {
-    const path =
-      item.id === undefined ? downloadUrl : endpoint + "/jobs/" + jobId + "/tracks/" + item.id;
-    const response = await fetch(path, { signal });
+    const path = "/jobs/" + jobId + (item.id === undefined ? "/result" : "/tracks/" + item.id);
+    const response = await client.request(path, { signal });
     if (!response.ok) throw new Error("Esta descarga caducó. Prepara el audio de nuevo.");
     const blob = await response.blob();
     if (blob.size > fileLimit) throw new Error("El archivo supera 100 MB.");
@@ -242,6 +289,19 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
       <h2 id="media-tools-title">
         <AudioLines size={20} aria-hidden="true" /> Descargas y conversión
       </h2>
+      <MediaServerSettings
+        connection={connection}
+        onSave={(value) => {
+          setConnection(saveMediaConnection(owner, value, { allowLocal: local }));
+          setJob(null);
+          setError("");
+        }}
+        busy={busy}
+        connecting={Boolean(connection.url && availability === null)}
+        error={connectionError}
+        probe={probe}
+        onRetry={() => setRetry((value) => value + 1)}
+      />
       <div className="media-tools-modes" role="group" aria-label="Origen del audio">
         <button
           type="button"
@@ -250,6 +310,14 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
           onClick={() => changeMode("youtube")}
         >
           <Link2 size={17} /> YouTube
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "links"}
+          disabled={busy}
+          onClick={() => changeMode("links")}
+        >
+          <Link2 size={17} /> Otros sitios
         </button>
         <button
           type="button"
@@ -299,21 +367,27 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
         </div>
       ) : availability === null ? (
         <p className="media-tools-note" role="status">
-          Buscando la herramienta de descargas…
+          {client.remote
+            ? "Conectando con el servidor. Render Free puede tardar aproximadamente un minuto en despertar…"
+            : "Buscando la herramienta de descargas…"}
         </p>
       ) : !enabled ? (
         <div className="media-source-help" role="status">
           <h3>
-            {local
-              ? "La herramienta de descargas necesita prepararse."
-              : "Las descargas se preparan en un equipo con Onda."}
+            {client.remote && mode === "file"
+              ? "Los archivos del dispositivo se añaden directamente a tu biblioteca."
+              : local
+                ? "La herramienta de descargas necesita prepararse."
+                : "Las descargas se preparan en un equipo con Onda."}
           </h3>
           <p>
-            {local
-              ? mode === "youtube" && availability?.convert
-                ? "Falta yt-dlp en este equipo para preparar videos y playlists de YouTube."
-                : "Abre Onda con su servidor local y FFmpeg para convertir o descargar audio."
-              : "Esta versión web no tiene un servidor de descargas conectado. Puedes añadir MP3, M4A y otros audios desde tus archivos y escucharlos sin conexión."}
+            {client.remote && mode === "file"
+              ? "El servicio online prepara enlaces públicos. Para convertir un archivo propio, usa Onda local en tu equipo."
+              : local
+                ? mode === "youtube" && availability?.convert
+                  ? "Falta yt-dlp en este equipo para preparar videos y playlists de YouTube."
+                  : "Abre Onda con su servidor local y FFmpeg para convertir o descargar audio."
+                : "Esta versión web no tiene un servidor de descargas conectado. Puedes añadir MP3, M4A y otros audios desde tus archivos y escucharlos sin conexión."}
           </p>
           <button className="media-tools-action" onClick={onChooseFiles}>
             <FolderOpen size={16} />{" "}
@@ -327,13 +401,19 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
         </div>
       ) : (
         <form className="media-tools-form" onSubmit={start}>
-          {mode === "youtube" ? (
+          {linkMode ? (
             <label className="media-tools-source">
-              Enlace del video o la playlist
+              {mode === "links"
+                ? "Enlace público de audio o video"
+                : "Enlace del video o la playlist"}
               <input
                 type="url"
                 value={url}
-                placeholder="https://www.youtube.com/playlist?list=…"
+                placeholder={
+                  mode === "links"
+                    ? "https://soundcloud.com/artista/cancion"
+                    : "https://www.youtube.com/playlist?list=…"
+                }
                 required
                 onChange={(event) => setUrl(event.target.value)}
                 disabled={busy}
@@ -368,7 +448,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
             </select>
           </label>
           <button type="submit" className="primary-button" disabled={busy}>
-            {mode === "youtube" ? "Preparar descarga" : "Convertir a audio"}
+            {linkMode ? "Preparar descarga" : "Convertir a audio"}
           </button>
           {mode === "file" && <small id="media-tools-limit">Hasta 100 MB por archivo.</small>}
           {mode === "youtube" && linkHasPlaylist && (
@@ -383,6 +463,12 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
             </label>
           )}
         </form>
+      )}
+      {mode === "links" && (
+        <p className="media-tools-note">
+          Enlaces públicos de SoundCloud, Bandcamp, Vimeo e Internet Archive. Su disponibilidad
+          depende de cada fuente; Spotify se importa en «Spotify · listas».
+        </p>
       )}
       {posting && (
         <p className="media-tools-note" role="status">

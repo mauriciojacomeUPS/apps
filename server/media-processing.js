@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { constants, existsSync } from "node:fs";
-import { access, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, delimiter, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -15,6 +16,7 @@ const youtubeHosts = new Set([
   "m.youtube.com",
   "music.youtube.com",
 ]);
+export const MEDIA_SOURCES = ["youtube", "soundcloud", "bandcamp", "vimeo", "archive"];
 const formats = new Map([
   ["mp3", { type: "audio/mpeg", args: ["-c:a", "libmp3lame", "-q:a", "2"] }],
   ["m4a", { type: "audio/mp4", args: ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] }],
@@ -68,6 +70,70 @@ export function youtubeSource(value, { preferPlaylist = false } = {}) {
   }
   throw new MediaError("El enlace debe apuntar a un video o una playlist de YouTube.");
 }
+
+export function mediaSource(value, options = {}) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new MediaError("Pega un enlace HTTPS completo a una fuente compatible.");
+  }
+  if (youtubeHosts.has(url.hostname) || url.hostname === "youtu.be")
+    return { ...youtubeSource(value, options), provider: "youtube" };
+  if (["open.spotify.com", "spotify.link"].includes(url.hostname))
+    return youtubeSource(value, options);
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.port ||
+    /%2f|%5c|%00/i.test(url.pathname)
+  )
+    throw new MediaError("Usa un enlace HTTPS público sin credenciales ni puertos especiales.");
+  const path = url.pathname.replace(/\/+$/, "");
+  if (["soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"].includes(url.hostname)) {
+    if (url.searchParams.has("secret_token"))
+      throw new MediaError("Esta fuente requiere un enlace público.");
+    if (/^\/[a-z0-9_-]+\/(?:sets\/)?[a-z0-9_-]+$/i.test(path))
+      return {
+        provider: "soundcloud",
+        url: "https://soundcloud.com" + path,
+        playlist: path.split("/")[2] === "sets",
+      };
+  }
+  if (
+    /^[a-z0-9][a-z0-9-]*\.bandcamp\.com$/i.test(url.hostname) &&
+    !["www.bandcamp.com", "daily.bandcamp.com"].includes(url.hostname) &&
+    /^\/(track|album)\/[a-z0-9_-]+$/i.test(path)
+  )
+    return { provider: "bandcamp", url: url.origin + path, playlist: path.startsWith("/album/") };
+  if (["vimeo.com", "www.vimeo.com"].includes(url.hostname) && /^\/[0-9]{1,12}$/.test(path))
+    return { provider: "vimeo", url: "https://vimeo.com" + path, playlist: false };
+  if (url.hostname === "player.vimeo.com" && /^\/video\/[0-9]{1,12}$/.test(path))
+    return {
+      provider: "vimeo",
+      url: "https://vimeo.com/" + path.split("/").at(-1),
+      playlist: false,
+    };
+  if (
+    ["archive.org", "www.archive.org"].includes(url.hostname) &&
+    /^\/details\/[a-z0-9][a-z0-9._-]{0,99}$/i.test(path)
+  )
+    return { provider: "archive", url: "https://archive.org" + path, playlist: true };
+  throw new MediaError(
+    "Usa un video o lista pública de YouTube, SoundCloud, Bandcamp, Vimeo o Internet Archive. Spotify se importa como CSV.",
+  );
+}
+
+const audioLimit = (job) => job.limits?.maxAudioBytes || MAX_AUDIO_BYTES;
+const sourceName = (provider) =>
+  ({
+    youtube: "YouTube",
+    soundcloud: "SoundCloud",
+    bandcamp: "Bandcamp",
+    vimeo: "Vimeo",
+    archive: "Internet Archive",
+  })[provider] || "La fuente";
 
 export async function localExecutables(env) {
   async function locate(name, setting) {
@@ -144,8 +210,10 @@ async function convert(tools, job, input, index, title, tags = []) {
         "-dn",
         ...args,
         ...tags,
+        "-threads",
+        "1",
         "-fs",
-        String(MAX_AUDIO_BYTES + 1),
+        String(audioLimit(job) + 1),
         path,
       ],
       job,
@@ -160,9 +228,11 @@ async function convert(tools, job, input, index, title, tags = []) {
     );
   }
   const { size } = await stat(path);
-  if (!size || size > MAX_AUDIO_BYTES) {
+  if (!size || size > audioLimit(job)) {
     await rm(path, { force: true });
-    throw new MediaError("El audio supera 100 MB. Prueba con MP3 o M4A.");
+    throw new MediaError(
+      "El audio supera " + Math.round(audioLimit(job) / 1024 / 1024) + " MB. Prueba con MP3 o M4A.",
+    );
   }
   return { path, name: safeName(title) + "." + job.format, type, size };
 }
@@ -219,44 +289,108 @@ export function youtubeError(error) {
   );
 }
 
-async function downloadVideo(tools, job, url, index, prefix = "") {
+async function downloadVideo(
+  tools,
+  job,
+  url,
+  index,
+  prefix = "",
+  source = { provider: "youtube" },
+  playlistIndex,
+) {
   async function download(format) {
-    const { stdout } = await run(
-      tools.ytDlp,
-      [
-        ...ytArgs(job),
-        "--no-playlist",
-        "--match-filters",
-        "!is_live",
-        "--max-filesize",
-        "100M",
-        "-f",
-        format,
-        "--no-simulate",
-        "--print",
-        "after_move:%(.{filepath,title,artist,uploader})j",
-        "-o",
-        join(job.dir, `input-${index}.%(ext)s`),
-        "--",
-        url,
-      ],
-      job,
-    );
-    const metadata = JSON.parse(stdout.trim().split(/\r?\n/).at(-1) || "null");
-    if (typeof metadata?.filepath !== "string") throw new Error("No downloaded audio");
-    return metadata;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    job.controller.signal.addEventListener("abort", abort, { once: true });
+    if (job.controller.signal.aborted) abort();
+    let exceeded = false,
+      checking = false;
+    const timer = setInterval(async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        for (const name of await readdir(job.dir))
+          if (
+            name.startsWith("input-" + index + ".") &&
+            (await stat(join(job.dir, name))).size > audioLimit(job)
+          ) {
+            exceeded = true;
+            controller.abort();
+            break;
+          }
+      } catch {
+      } finally {
+        checking = false;
+      }
+    }, 400);
+    timer.unref();
+    try {
+      const { stdout } = await run(
+        tools.ytDlp,
+        [
+          ...ytArgs(job),
+          ...(playlistIndex
+            ? ["--yes-playlist", "--playlist-items", String(playlistIndex)]
+            : ["--no-playlist"]),
+          "--use-extractors",
+          {
+            youtube: "Youtube.*",
+            soundcloud: "Soundcloud.*",
+            bandcamp: "Bandcamp.*",
+            vimeo: "Vimeo.*",
+            archive: "ArchiveOrg",
+          }[source.provider],
+          "--match-filters",
+          "!is_live",
+          "--max-filesize",
+          String(audioLimit(job)),
+          "-f",
+          format,
+          "--no-simulate",
+          "--print",
+          "after_move:%(.{filepath,title,artist,uploader})j",
+          "-o",
+          join(job.dir, `input-${index}.%(ext)s`),
+          "--",
+          url,
+        ],
+        { ...job, controller },
+      );
+      const metadata = JSON.parse(stdout.trim().split(/\r?\n/).at(-1) || "null");
+      if (typeof metadata?.filepath !== "string") throw new Error("No downloaded audio");
+      return metadata;
+    } catch (error) {
+      if (exceeded) throw new MediaError("El audio supera el límite de tamaño del servidor.");
+      throw error;
+    } finally {
+      clearInterval(timer);
+      job.controller.signal.removeEventListener("abort", abort);
+    }
   }
   let metadata;
   try {
     try {
-      metadata = await download("bestaudio[ext=m4a]/bestaudio");
+      metadata = await download(
+        source.provider === "youtube" ? "bestaudio[ext=m4a]/bestaudio" : "bestaudio/best",
+      );
     } catch (error) {
-      if (job.controller.signal.aborted || !/HTTP Error 403/i.test(error.stderr || "")) throw error;
+      if (
+        source.provider !== "youtube" ||
+        job.controller.signal.aborted ||
+        !/HTTP Error 403/i.test(error.stderr || "")
+      )
+        throw error;
       metadata = await download("bestaudio[ext=webm]");
     }
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
-    throw youtubeError(error);
+    if (error instanceof MediaError) throw error;
+    throw source.provider === "youtube"
+      ? youtubeError(error)
+      : new MediaError(
+          sourceName(source.provider) +
+            " no entregó un audio público. Puede requerir acceso o no permitir su descarga.",
+        );
   }
   const inputName = basename(metadata.filepath);
   if (!inputName.startsWith(`input-${index}.`)) {
@@ -266,8 +400,8 @@ async function downloadVideo(tools, job, url, index, prefix = "") {
   const title = metadata.title || "Audio de YouTube";
   const artist = metadata.artist || metadata.uploader || "";
   try {
-    if ((await stat(input)).size > MAX_AUDIO_BYTES) {
-      throw new MediaError("El video supera 100 MB de audio.");
+    if ((await stat(input)).size > audioLimit(job)) {
+      throw new MediaError("El audio supera el límite de tamaño del servidor.");
     }
     const tags = ["-metadata", "title=" + title];
     if (artist) tags.push("-metadata", "artist=" + artist);
@@ -281,7 +415,15 @@ async function playlistInfo(tools, job, url) {
   try {
     const { stdout } = await run(
       tools.ytDlp,
-      [...ytArgs(job), "--flat-playlist", "--dump-single-json", "--", url],
+      [
+        ...ytArgs(job),
+        "--flat-playlist",
+        "--dump-single-json",
+        "--playlist-end",
+        String((job.limits?.maxPlaylistTracks || 200) + 1),
+        "--",
+        url,
+      ],
       job,
     );
     return JSON.parse(stdout);
@@ -291,23 +433,33 @@ async function playlistInfo(tools, job, url) {
   }
 }
 
-export async function downloadYoutube(tools, job, source) {
+export async function downloadMedia(tools, job, source) {
+  source = { ...source, provider: source.provider || "youtube" };
   if (!source.playlist) {
     job.message = "Descargando y convirtiendo el audio…";
-    return downloadVideo(tools, job, source.url, 1);
+    try {
+      return await downloadVideo(tools, job, source.url, 1, "", source);
+    } finally {
+      for (const name of await readdir(job.dir).catch(() => []))
+        if (name.startsWith("input-1."))
+          await rm(join(job.dir, name), { force: true, recursive: true });
+    }
   }
-  job.message = "Leyendo la playlist de YouTube…";
+  job.message = "Leyendo la lista de " + sourceName(source.provider) + "…";
   const info = await playlistInfo(tools, job, source.url);
-  const entries = info?.entries;
+  const maximum = job.limits?.maxPlaylistTracks || 200;
+  const entries = info?.entries?.slice(0, maximum);
   if (!entries?.length) throw new MediaError("La playlist está vacía o no se puede abrir.");
   const files = [];
   const skipped = [];
   let bytes = 0;
   let stopReason;
+  const capped = info.entries.length > maximum;
+  if (capped) job.notice = "Este servidor procesa hasta " + maximum + " pistas por operación.";
   job.total = entries.length;
   job.done = 0;
   job.message = "Descargando y convirtiendo la playlist…";
-  const parallel = 2;
+  const parallel = job.limits?.parallel || 2;
   const width = String(entries.length).length;
   for (let offset = 0; offset < entries.length; offset += parallel) {
     job.controller.signal.throwIfAborted();
@@ -316,16 +468,24 @@ export async function downloadYoutube(tools, job, source) {
       batch.map(async (entry, index) => {
         const position = offset + index + 1;
         try {
-          if (!videoId.test(entry?.id)) throw new MediaError("Video no disponible.");
+          if (source.provider === "youtube" && !videoId.test(entry?.id))
+            throw new MediaError("Video no disponible.");
           const number = String(position).padStart(width, "0");
           return await downloadVideo(
             tools,
             job,
-            "https://www.youtube.com/watch?v=" + entry.id,
+            source.provider === "youtube"
+              ? "https://www.youtube.com/watch?v=" + entry.id
+              : source.url,
             position,
             number + " - ",
+            source,
+            source.provider === "youtube" ? undefined : position,
           );
         } finally {
+          for (const name of await readdir(job.dir).catch(() => []))
+            if (name.startsWith("input-" + position + "."))
+              await rm(join(job.dir, name), { force: true, recursive: true });
           job.done++;
         }
       }),
@@ -342,10 +502,10 @@ export async function downloadYoutube(tools, job, source) {
         continue;
       }
       const file = result.value;
-      if (bytes + file.size > MAX_PLAYLIST_BYTES) {
+      if (bytes + file.size > (job.limits?.maxPlaylistBytes || MAX_PLAYLIST_BYTES)) {
         await rm(file.path, { force: true });
-        skipped.push(`${number}. ${title} — se alcanzó el límite de 1 GB.`);
-        stopReason ||= "Se alcanzó el límite de 1 GB.";
+        skipped.push(`${number}. ${title} — se alcanzó el límite de tamaño de la playlist.`);
+        stopReason ||= "Se alcanzó el límite de tamaño de la playlist.";
       } else {
         bytes += file.size;
         files.push(file);
@@ -366,6 +526,56 @@ export async function downloadYoutube(tools, job, source) {
   job.message = "Preparando el archivo ZIP…";
   job.saved = files.length;
   job.skipped = entries.length - files.length;
-  job.notice = stopReason;
-  return { files, skipped, name: safeName(info.title || "Playlist de YouTube") + ".zip" };
+  job.notice = [job.notice, stopReason].filter(Boolean).join(" ") || undefined;
+  return {
+    files,
+    skipped,
+    name: safeName(info.title || "Playlist de " + sourceName(source.provider)) + ".zip",
+  };
+}
+
+export const downloadYoutube = (tools, job, source) =>
+  downloadMedia(tools, job, { ...source, provider: "youtube" });
+
+export async function runSourceProbe(env, { signal } = {}) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  const timer = setTimeout(abort, 90000);
+  timer.unref();
+  let dir;
+  try {
+    const tools = await localExecutables(env);
+    if (!tools.ffmpeg || !tools.ytDlp)
+      throw new MediaError("Faltan FFmpeg o yt-dlp en este servidor.");
+    dir = await mkdtemp(join(tmpdir(), "onda-probe-"));
+    const output = await downloadMedia(
+      tools,
+      { dir, controller, format: "m4a", limits: { maxAudioBytes: 16 * 1024 * 1024 } },
+      mediaSource("https://www.youtube.com/watch?v=BaW_jenozKc"),
+    );
+    return {
+      provider: "youtube",
+      status: "passed",
+      message: "Se descargó y convirtió el video público de prueba.",
+      bytes: output.size,
+      checkedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      provider: "youtube",
+      status: error.code === "proxy-blocked" || error.code === "rate-limit" ? "blocked" : "failed",
+      message: controller.signal.aborted
+        ? "La comprobación agotó su tiempo o se detuvo."
+        : error instanceof MediaError
+          ? error.message
+          : "No se pudo completar la comprobación de YouTube.",
+      checkedAt: new Date().toISOString(),
+    };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+    if (dir) await rm(dir, { force: true, recursive: true });
+  }
 }

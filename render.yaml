@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: onda-media
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: ONDA_ALLOWED_ORIGINS
+        value: https://mauriciojacomeups.github.io
+      - key: ONDA_API_KEY
+        generateValue: true
+      - key: ONDA_RUN_SOURCE_CHECK
+        value: "true"
+      - key: ONDA_MAX_AUDIO_MB
+        value: "32"
+      - key: ONDA_MAX_PLAYLIST_MB
+        value: "128"
+      - key: ONDA_MAX_PLAYLIST_TRACKS
+        value: "25"
+      - key: ONDA_DOWNLOAD_PARALLEL
+        value: "1"

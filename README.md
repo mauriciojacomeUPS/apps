@@ -103,9 +103,11 @@ Los controles multimedia del sistema y auriculares usan Media Session cuando el 
 
 La compilación de producción es una PWA. Abre la web una vez con internet para preparar sus archivos y después podrás reabrirla y escuchar las canciones locales sin conexión. **Opciones de Onda → Usar sin conexión** (o desde el perfil si has iniciado sesión) muestra el estado; **Instalar Onda** aparece cuando el navegador ofrece instalación. Las nuevas versiones piden una actualización manual y esperan a que pauses la música. Más detalles y pasos de prueba en [uso sin conexión](docs/offline.md).
 
-## Descargas y conversión en Onda local
+## Descargas y conversión
 
-En **En este dispositivo → Descargas y conversión**, elige **YouTube**, **Spotify · listas** o **Archivo del equipo**. Con el servidor local, pega un video/playlist de YouTube o convierte un archivo a MP3, M4A, FLAC o WAV. Un enlace de video que también contenga una lista permite elegir **Descargar toda la playlist**.
+En **En este dispositivo → Descargas y conversión**, elige **YouTube**, **Otros sitios**, **Spotify · listas** o **Archivo del equipo**. Puedes preparar enlaces públicos de YouTube, SoundCloud, Bandcamp, Vimeo e Internet Archive con el servidor local o con el servicio separado en Render. La disponibilidad depende de cada fuente. Un enlace de video de YouTube que también contenga una lista permite elegir **Descargar toda la playlist**. La conversión de archivos del equipo se mantiene en el servidor local.
+
+Para descargar directamente desde la web en el iPhone, despliega [el servicio gratuito en Render](docs/render.md) y usa **Conectar servidor Render** dentro de Onda. El [Blueprint](https://render.com/deploy?repo=https://github.com/mauriciojacomeUPS/apps) configura Docker, FFmpeg, yt-dlp, una clave privada y una prueba real de YouTube al arrancar. GitHub Pages conserva la web y Supabase sigue siendo solo para usuarios. El servidor no recibe los archivos que seleccionas desde tu dispositivo.
 
 La playlist preparada se puede **Añadir a biblioteca** pista por pista: Onda muestra progreso y duplicados, y permite detener la importación conservando lo añadido. El ZIP sigue disponible con la lista M3U8 y un informe de pistas omitidas. Ya no es necesario extraerlo para añadirlo en ese navegador.
 
@@ -113,7 +115,7 @@ La playlist preparada se puede **Añadir a biblioteca** pista por pista: Onda mu
 
 En iPhone, **Añadir desde Archivos del iPhone** abre el selector de audios. La web publicada explica cuándo falta el servidor de descargas en vez de mostrar solo el título del panel. Cuando hay un resultado de audio disponible y el navegador admite compartir archivos, **Preparar para compartir → Compartir / Guardar en Archivos** prepara un `File` antes de abrir la hoja de compartir. MP3 y M4A son las opciones recomendadas. Guía y límites en [descargas y iPhone](docs/downloads.md).
 
-- Abre la app desde `http://localhost:5173/` o `http://127.0.0.1:5173/` con `npm run dev -- --port 5173`. La herramienta se ejecuta en ese equipo. La versión estática de GitHub Pages conserva el reproductor y la importación de archivos.
+- Para procesar en tu PC, abre la app desde `http://localhost:5173/` o `http://127.0.0.1:5173/` con `npm run dev -- --port 5173`. La versión de GitHub Pages puede conectarse al servicio HTTPS de Render; sin conexión al servicio conserva el reproductor y la importación de archivos.
 - Instala [FFmpeg](https://ffmpeg.org/download.html) para convertir y [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases/latest) para YouTube. Puedes poner los ejecutables en el `PATH`, en `%LOCALAPPDATA%\Onda\bin` en Windows, o indicar sus rutas absolutas en `.env.local` mediante `ONDA_FFMPEG_PATH` y `ONDA_YTDLP_PATH`.
 - El audio y los archivos de entrada se procesan en una carpeta temporal local. El límite es de 100 MB por audio y 1 GB por playlist. El ZIP y sus pistas se conservan hasta iniciar otra operación, cerrar el servidor o pasar 30 minutos sin transferencias. Guarda o importa el resultado antes de ese momento.
 
