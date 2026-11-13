@@ -54,8 +54,11 @@ test("Supabase auth contract switches independent local libraries; audio never u
   });
   await page.goto("./");
   const login = async (email) => {
-    await page.getByRole("button", { name: "Abrir perfil", exact: true }).click();
-    await page.getByRole("button", { name: "Iniciar sesión o registrarte", exact: true }).click();
+    await expect(page.locator(".avatar")).toHaveCount(0);
+    await page
+      .locator(".topbar")
+      .getByRole("button", { name: "Iniciar sesión", exact: true })
+      .click();
     await page.getByLabel("Correo electrónico", { exact: true }).fill(email);
     await page.getByLabel("Contraseña", { exact: true }).fill("test-password-only");
     await page
@@ -63,6 +66,7 @@ test("Supabase auth contract switches independent local libraries; audio never u
       .getByRole("button", { name: "Iniciar sesión", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.locator(".avatar")).toHaveText(email.startsWith("one") ? "O" : "T");
   };
   await login("one@example.test");
   await page.getByRole("button", { name: "Archivos de este dispositivo", exact: true }).click();

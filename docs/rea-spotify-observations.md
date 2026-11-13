@@ -57,3 +57,18 @@ REA también ejecutó un escenario sobre la compilación local de Onda en `/apps
 La captura final de accesibilidad y URL quedó completa, sin truncamiento; muestra los tipos de resultado, los filtros y la canción encontrada. El informe global marca eventos ausentes porque no se solicitaron. Esta evidencia comprueba ese recorrido visible: no mide reproducción, instalación ni funcionamiento offline. Esos comportamientos se verifican por separado con las pruebas automatizadas de Onda.
 
 El bundle completo, el escenario, el resumen y el texto de accesibilidad están en `/workspace/shared/onda-current-validation/rea/onda-search-*`, fuera del repositorio. REA se desconectó del Chromium temporal al terminar; el navegador creado para esta comprobación se cerró después. No se usaron cuentas ni archivos personales.
+
+## Panel de invitado y navegación local
+
+Una nueva captura del inicio público solicitado en `/intl-es` terminó en `/` y mostró «Log in», «Sign up», «Install App», búsqueda, biblioteca lateral con invitación a crear una primera playlist y una barra de reproducción de vista previa. En este estado sin sesión, la captura muestra acciones de acceso y registro; no se encontró un avatar de cuenta en el árbol de accesibilidad capturado. No se recorrió una sesión autenticada.
+
+Evidence de REA: `ev_c8c8a084756b892d49f65913da1b2082a92a802e9363cbbb25cbdbd397dbaa14`. Tanto la navegación inicial como la espera del panel finalizaron correctamente. Accesibilidad y URL finales quedaron completas y sin truncamiento. La cobertura global omite eventos porque no se solicitaron. Los archivos `spotify-guest-panel-{scenario,evidence,summary}.json` y `spotify-guest-panel-accessibility.txt` se conservan junto a la evidencia anterior fuera del repositorio. El Chromium temporal se desconectó al terminar la captura y se cerró después de la revisión.
+
+Onda adapta estos patrones a su biblioteca del dispositivo:
+
+- Invitado: «Iniciar sesión» y «Opciones de Onda», sin una inicial ficticia. Usuario autenticado: inicial derivada del nombre o correo reales.
+- Inicio: añadir archivos tiene prioridad; «Todo», «Mi música» y «Demo» filtran el contenido que muestran. Las selecciones e instrumentales de muestra se identifican como demo. El historial sigue basándose en reproducciones locales.
+- Biblioteca: búsqueda que ignora tildes, ordenación por nombre o por las últimas aperturas y estado del almacenamiento/conexión que refleja la biblioteca. Una instalación nueva empieza sin playlists de muestra guardadas; se conservan las selecciones existentes.
+- Se elimina la novedad fija de muestra de la campana. El acceso a instalación/offline y las acciones locales permanecen disponibles sin tener que crear una cuenta.
+
+Los filtros de archivos, el orden por aperturas y la identificación local/demo son decisiones de Onda, no funciones autenticadas verificadas en Spotify. No se reproducen sus servicios, anuncios, suscripciones, catálogo comercial ni su limitación de reproducción para invitados.

@@ -8,8 +8,6 @@ import {
   ArrowUpRight,
   ArrowLeft,
   ArrowRight,
-  Bell,
-  ChevronDown,
   Play,
   Pause,
   SkipBack,
@@ -29,10 +27,8 @@ import {
   Headphones,
   Disc3,
   CheckCircle2,
-  CircleHelp,
   Maximize2,
   HardDrive,
-  LogOut,
   ListPlus,
   ArrowUp,
   ArrowDown,
@@ -58,6 +54,9 @@ import HomePersonalization from "./HomePersonalization";
 import { PwaProvider, usePwa } from "./PwaContext";
 import { importPlaylist, downloadPlaylist, playlistArtwork } from "./playlist-transfer";
 import QueuePanel from "./QueuePanel";
+import AccountMenu from "./AccountMenu";
+import LocalWelcome from "./LocalWelcome";
+import { searchText } from "./music-search";
 import {
   makeQueue,
   activeQueueIndex,
@@ -66,6 +65,7 @@ import {
   shuffleUpcoming,
 } from "./player-queue";
 import "./styles.css";
+import "./dashboard.css";
 
 const readSaved = (key, fallback) => {
   try {
@@ -281,13 +281,16 @@ function App() {
   const [shuffle, setShuffle] = useState(savedPlayback?.shuffle === true);
   const [repeat, setRepeat] = useState(savedPlayback?.repeat === true);
   const [liked, setLiked] = useState(() => readMySaved("onda-liked", []));
-  const [saved, setSaved] = useState(() => readMySaved("onda-saved", ["summer", "focus", "night"]));
+  const [saved, setSaved] = useState(() => readMySaved("onda-saved", []));
+  const [librarySort, setLibrarySort] = useState(() => readMySaved("onda-library-sort", "recent"));
+  const [libraryRecent, setLibraryRecent] = useState(() => readMySaved("onda-library-recent", {}));
   const [custom, setCustom] = useState(() => readMySaved("onda-playlists", []));
   const [modal, setModal] = useState(null);
   const [playlistName, setPlaylistName] = useState("");
   const [toast, setToast] = useState("");
   const [showQueue, setShowQueue] = useState(false);
   const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const [mobileLibrary, setMobileLibrary] = useState(false);
   const [libraryFilter, setLibraryFilter] = useState("");
   const [librarySearch, setLibrarySearch] = useState(false);
@@ -377,6 +380,12 @@ function App() {
   }, [saved]);
   useEffect(() => {
     try {
+      localStorage.setItem(libraryKey("onda-library-sort"), JSON.stringify(librarySort));
+      localStorage.setItem(libraryKey("onda-library-recent"), JSON.stringify(libraryRecent));
+    } catch {}
+  }, [librarySort, libraryRecent]);
+  useEffect(() => {
+    try {
       localStorage.setItem(libraryKey("onda-playlists"), JSON.stringify(custom));
     } catch {
       notify(
@@ -448,6 +457,7 @@ function App() {
     document.querySelector(".main-scroll")?.scrollTo(0, 0);
   };
   const openPlaylist = (p) => {
+    setLibraryRecent((previous) => ({ ...previous, [p.id]: Date.now() }));
     setSelected(p);
     navigate("playlist", p.id);
   };
@@ -801,10 +811,23 @@ function App() {
     />
   );
   const libraryView = ["library", "albums", "artists", "album", "artist"].includes(view);
-  const visiblePlaylists =
-    filter === "Para ti"
-      ? [playlists[2], playlists[0], playlists[3], playlists[5], playlists[4]]
-      : [playlists[1], playlists[2], playlists[3], playlists[4], playlists[5]];
+  const visiblePlaylists = playlists.slice(1);
+  const savedPlaylists = allPlaylists.filter((p) => saved.includes(p.id));
+  const sidebarPlaylists = savedPlaylists
+    .filter((p) => searchText(`${p.title} ${p.subtitle}`).includes(searchText(libraryFilter)))
+    .sort((a, b) =>
+      librarySort === "title"
+        ? a.title.localeCompare(b.title, "es", { sensitivity: "base", numeric: true })
+        : (libraryRecent[b.id] || 0) - (libraryRecent[a.id] || 0) ||
+          saved.indexOf(b.id) - saved.indexOf(a.id),
+    );
+  const savedShortcuts = [...(liked.length ? [likedPlaylist] : []), ...savedPlaylists].slice(0, 4);
+  const hasOwnShortcuts = filter !== "Demo" && savedShortcuts.length > 0;
+  const quickPlaylists = hasOwnShortcuts ? savedShortcuts : playlists.slice(0, 4);
+  const installOnda = () => {
+    if (pwa.canInstall) pwa.install();
+    else setModal({ type: "offline" });
+  };
 
   return (
     <div className="app-shell">
@@ -850,19 +873,12 @@ function App() {
           <IconButton title="Acerca de Onda" onClick={() => setModal({ type: "about" })}>
             <Headphones size={22} />
           </IconButton>
-          <button
-            className="avatar small-avatar"
-            aria-label="Mi perfil"
-            onClick={() => setMenu(menu === "profile" ? null : "profile")}
-          >
-            M
-          </button>
         </div>
       </aside>
 
       <aside className={`library-sidebar ${mobileLibrary ? "mobile-open" : ""}`}>
         <button className="wordmark" aria-label="Onda — Inicio" onClick={() => navigate("home")}>
-          onda<span>®</span>
+          onda
         </button>
         <div className="library-title">
           <h2>Tu biblioteca</h2>
@@ -900,62 +916,86 @@ function App() {
         <div className="library-sort">
           <IconButton
             title="Buscar en tu biblioteca"
+            aria-expanded={librarySearch}
             onClick={() => setLibrarySearch(!librarySearch)}
           >
             <Search size={16} />
           </IconButton>
-          <span>
-            Recientes <ListMusic size={14} />
-          </span>
+          <label className="library-order">
+            <select
+              aria-label="Ordenar biblioteca"
+              value={librarySort}
+              onChange={(event) => setLibrarySort(event.target.value)}
+            >
+              <option value="recent">Recientes</option>
+              <option value="title">Nombre</option>
+            </select>
+            <ListMusic size={14} />
+          </label>
         </div>
         {librarySearch && (
-          <input
-            className="library-search"
-            placeholder="Buscar en tu biblioteca"
-            aria-label="Buscar en tu biblioteca"
-            value={libraryFilter}
-            onChange={(e) => setLibraryFilter(e.target.value)}
-            autoFocus
-          />
+          <div className="library-search-wrap">
+            <input
+              className="library-search"
+              placeholder="Buscar en tu biblioteca"
+              aria-label="Buscar en tu biblioteca"
+              value={libraryFilter}
+              onChange={(e) => setLibraryFilter(e.target.value)}
+              autoFocus
+            />
+            <IconButton
+              title="Limpiar búsqueda de biblioteca"
+              onClick={() => {
+                setLibraryFilter("");
+                document.querySelector(".library-search")?.focus();
+              }}
+            >
+              <X size={14} />
+            </IconButton>
+          </div>
         )}
         <div className="library-items">
-          <button
-            className={`library-item ${selected?.id === "liked" && view === "playlist" ? "selected-library" : ""}`}
-            onClick={() => openPlaylist(likedPlaylist)}
-          >
-            <div className="liked-cover">
-              <Heart size={23} fill="white" />
-            </div>
-            <span>
-              <strong>Tus me gusta</strong>
-              <small>
-                <span className="pin">◆</span> Playlist · {liked.length} canciones
-              </small>
-            </span>
-          </button>
-          {allPlaylists
-            .filter(
-              (p) =>
-                saved.includes(p.id) && p.title.toLowerCase().includes(libraryFilter.toLowerCase()),
-            )
-            .map((p) => (
-              <button
-                className={`library-item ${selected?.id === p.id && view === "playlist" ? "selected-library" : ""}`}
-                key={p.id}
-                onClick={() => openPlaylist(p)}
-              >
-                <img src={img(p.cover)} alt="" />
-                <span>
-                  <strong>{p.title}</strong>
-                  <small>Playlist · {p.id.startsWith("custom") ? "Tú" : "Onda"}</small>
+          {searchText("Tus me gusta").includes(searchText(libraryFilter)) && (
+            <button
+              className={`library-item ${selected?.id === "liked" && view === "playlist" ? "selected-library" : ""}`}
+              onClick={() => openPlaylist(likedPlaylist)}
+            >
+              <div className="liked-cover">
+                <Heart size={23} fill="white" />
+              </div>
+              <span>
+                <strong>Tus me gusta</strong>
+                <small>
+                  <span className="pin">◆</span> Playlist · {liked.length} canciones
+                </small>
+              </span>
+            </button>
+          )}
+          {sidebarPlaylists.map((p) => (
+            <button
+              className={`library-item ${selected?.id === p.id && view === "playlist" ? "selected-library" : ""}`}
+              key={p.id}
+              onClick={() => openPlaylist(p)}
+            >
+              <img src={img(p.cover)} alt="" />
+              <span>
+                <strong>{p.title}</strong>
+                <small>
+                  Playlist · {p.id.startsWith("custom") ? "Tu selección" : "Demo de Onda"}
+                </small>
+              </span>
+              {current.id === p.tracks[0] && playing && (
+                <span className="library-playing">
+                  <Volume2 size={15} />
                 </span>
-                {current.id === p.tracks[0] && playing && (
-                  <span className="library-playing">
-                    <Volume2 size={15} />
-                  </span>
-                )}
-              </button>
-            ))}
+              )}
+            </button>
+          ))}
+          {libraryFilter &&
+            !sidebarPlaylists.length &&
+            !searchText("Tus me gusta").includes(searchText(libraryFilter)) && (
+              <p className="sidebar-empty">No hay coincidencias. Prueba otro nombre.</p>
+            )}
         </div>
         <button className="local-sidebar-button" onClick={() => navigate("device")}>
           <HardDrive size={18} />
@@ -967,23 +1007,36 @@ function App() {
             Escuchando sin cuenta. <button onClick={signIn}>Iniciar sesión</button>
           </p>
         )}
-        <div className="library-invite">
-          <div className="invite-symbol">
-            <Disc3 size={22} />
-            <span>+</span>
+        {!custom.length && (
+          <div className="library-invite">
+            <div className="invite-symbol">
+              <Disc3 size={22} />
+              <span>+</span>
+            </div>
+            <h3>Una playlist muy tú.</h3>
+            <p>
+              Reúne esas canciones que
+              <br />
+              siempre quieres volver a escuchar.
+            </p>
+            <button onClick={() => setModal({ type: "create" })}>
+              Crear playlist <Plus size={15} />
+            </button>
           </div>
-          <h3>Una playlist muy tú.</h3>
-          <p>
-            Reúne esas canciones que
-            <br />
-            siempre quieres volver a escuchar.
-          </p>
-          <button onClick={() => setModal({ type: "create" })}>
-            Crear playlist <Plus size={15} />
-          </button>
-        </div>
+        )}
         <div className="sidebar-footer">
-          <span className="online-dot" /> Todo listo para escuchar
+          {pwa.offline ? (
+            <>
+              <WifiOff size={13} />
+              <span className="offline-state">Sin conexión · Biblioteca local</span>
+            </>
+          ) : (
+            <>
+              <HardDrive size={13} />
+              {localTracks.length}{" "}
+              {localTracks.length === 1 ? "canción local" : "canciones locales"}
+            </>
+          )}
         </div>
       </aside>
 
@@ -1034,107 +1087,28 @@ function App() {
                 <X size={16} />
               </IconButton>
             ) : (
-              <kbd>⌘ K</kbd>
+              <kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K"}</kbd>
             )}
           </div>
           <div className="topbar-right">
-            <span className="little-note">La vida suena mejor.</span>
-            <div className="menu-anchor">
-              <IconButton
-                title="Novedades"
-                className={menu === "notifications" ? "is-highlighted" : ""}
-                onClick={() => setMenu(menu === "notifications" ? null : "notifications")}
-              >
-                <Bell size={19} />
-                <span className="notification-dot" />
-              </IconButton>
-              {menu === "notifications" && (
-                <div className="dropdown notifications">
-                  <h3>Algo nuevo para tus oídos</h3>
-                  <p>
-                    <span className="online-dot" /> Late Summer ya está aquí
-                  </p>
-                  <small>Tu próximo atardecer tiene banda sonora.</small>
-                  <button
-                    onClick={() => {
-                      setMenu(null);
-                      openPlaylist(playlists[0]);
-                    }}
-                  >
-                    Descubrir playlist <ArrowUpRight size={15} />
-                  </button>
-                </div>
-              )}
-            </div>
-            <span className="topbar-divider" />
-            <div className="menu-anchor">
-              <button
-                className="profile-button"
-                onClick={() => setMenu(menu === "profile" ? null : "profile")}
-                aria-label="Abrir perfil"
-              >
-                <span className="avatar">M</span>
-                <ChevronDown size={14} />
+            {pwa.canInstall && (
+              <button className="header-install" onClick={installOnda}>
+                <Download size={16} /> Instalar Onda
               </button>
-              {menu === "profile" && (
-                <div className="dropdown profile-menu">
-                  <strong className="profile-email">{user?.email || "Tu espacio local"}</strong>
-                  <span>{user ? "Tu cuenta de Onda" : "Escuchando sin cuenta"}</span>
-                  {localOnly && user && (
-                    <p className="pwa-menu-note">
-                      Perfil local sin conexión. Podrás cambiar de cuenta cuando vuelva internet.
-                    </p>
-                  )}
-                  {user ? (
-                    <button
-                      onClick={() => {
-                        setMenu(null);
-                        logout();
-                      }}
-                    >
-                      <LogOut size={16} />
-                      Cerrar sesión
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setMenu(null);
-                        signIn();
-                      }}
-                    >
-                      <Headphones size={16} />
-                      Iniciar sesión o registrarte
-                    </button>
-                  )}
-                  <button
-                    onClick={async () => {
-                      setMenu(null);
-                      if (pwa.canInstall) await pwa.install();
-                      else setModal({ type: "offline" });
-                    }}
-                  >
-                    <Smartphone size={16} />{" "}
-                    {pwa.canInstall ? "Instalar Onda" : "Usar sin conexión"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenu(null);
-                      navigate("library");
-                    }}
-                  >
-                    <Library size={16} /> Mi biblioteca
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenu(null);
-                      setModal({ type: "about" });
-                    }}
-                  >
-                    <CircleHelp size={16} /> Acerca de Onda
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
+            <AccountMenu
+              user={user}
+              localOnly={localOnly}
+              open={menu === "profile"}
+              onToggle={() => setMenu(menu === "profile" ? null : "profile")}
+              onClose={closeMenu}
+              onLogin={signIn}
+              onLogout={logout}
+              onInstall={installOnda}
+              canInstall={pwa.canInstall}
+              onLibrary={() => navigate("library")}
+              onAbout={() => setModal({ type: "about" })}
+            />
           </div>
         </header>
 
@@ -1174,9 +1148,10 @@ function App() {
             <div className="home-page page-content">
               <div className="page-topline">
                 <div className="filter-chips">
-                  {["Todo", "Música", "Para ti"].map((f) => (
+                  {["Todo", "Mi música", "Demo"].map((f) => (
                     <button
                       className={`chip ${filter === f ? "selected" : ""}`}
+                      aria-pressed={filter === f}
                       key={f}
                       onClick={() => setFilter(f)}
                     >
@@ -1185,7 +1160,7 @@ function App() {
                   ))}
                 </div>
                 <span className="date-note">
-                  TU DOSIS DIARIA DE BUENA MÚSICA <span>✳</span>
+                  TU MÚSICA, EN ESTE DISPOSITIVO <HardDrive size={13} />
                 </span>
               </div>
               <div className="welcome-line">
@@ -1195,140 +1170,183 @@ function App() {
                     Encuentra tu onda<span>.</span>
                   </h1>
                 </div>
-                <p>Un sonido para cada versión de ti.</p>
+                <p>
+                  {localTracks.length
+                    ? "Tu colección tiene su propio ritmo."
+                    : "Tus archivos. Tu propio sonido."}
+                </p>
               </div>
-              <HomePersonalization
-                history={listening}
-                tracks={tracks}
-                localTracks={localTracks}
-                current={current}
-                progress={progress}
-                playing={playing}
-                onResume={() => {
-                  if (!playing) playTrack(current, queue);
-                }}
-                onPlay={playTrack}
-                onLibrary={() => navigate("device")}
-                renderTracks={renderTracks}
-              />
-              <section className="hero">
-                <img
-                  className="hero-photo"
-                  src={img("coast")}
-                  alt="Atardecer dorado junto al mar"
-                />
-                <div className="hero-overlay" />
-                <div className="hero-content">
-                  <span className="hero-kicker">
-                    <span className="hero-dot" /> LA SELECCIÓN DE HOY
-                  </span>
-                  <h2>
-                    El mundo puede
-                    <br />
-                    esperar un rato.
-                  </h2>
-                  <p>
-                    Deja que el día baje el ritmo.
-                    <br />
-                    Nosotros ponemos la música.
-                  </p>
-                  <div className="hero-actions">
-                    <button className="primary-button" onClick={() => playPlaylist(playlists[0])}>
-                      <Play size={17} fill="currentColor" /> Dale play a tu tarde
-                    </button>
-                    <button className="hero-discover" onClick={() => openPlaylist(playlists[0])}>
-                      Explorar playlist <ArrowUpRight size={17} />
-                    </button>
-                  </div>
-                  <div className="hero-credit">
-                    <span className="tiny-logo">
-                      <Wave small />
-                    </span>{" "}
-                    Curada por Onda <span>·</span> 4 canciones para desconectar
-                  </div>
-                </div>
-                <button
-                  className="hero-album"
-                  onClick={() => openPlaylist(playlists[0])}
-                  aria-label="Abrir Late Summer"
-                >
-                  <Cover playlist={playlists[0]} />
-                  <span className="hero-album-caption">
-                    <span>LA BANDA SONORA DE TU TARDE</span>
-                    <ArrowUpRight size={15} />
-                  </span>
-                </button>
-                <span className="hero-edition">VOL. 001 — GOOD DAYS AHEAD</span>
-              </section>
-              <section className="recent-section">
-                <div className="small-section-title">
-                  <h2>Vuelve a tu lugar feliz</h2>
-                  <span>
-                    EN ROTACIÓN <span className="online-dot" />
-                  </span>
-                </div>
-                <div className="quick-grid">
-                  {[playlists[0], playlists[4], likedPlaylist, playlists[2]].map((p) => (
-                    <div className="quick-item" key={p.id}>
-                      <button onClick={() => openPlaylist(p)}>
-                        {p.id === "liked" ? (
-                          <div className="liked-cover">
-                            <Heart size={22} fill="white" />
-                          </div>
-                        ) : (
-                          <img src={img(p.cover)} alt="" />
-                        )}
-                        <span>{p.title}</span>
-                      </button>
-                      <IconButton title={`Reproducir ${p.title}`} onClick={() => playPlaylist(p)}>
-                        <Play size={16} fill="currentColor" />
-                      </IconButton>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="discovery-section">
-                <SectionHeading
-                  eyebrow={
-                    filter === "Para ti" ? "SE SIENTE COMO TÚ" : "ENCUENTRA TU PRÓXIMO FAVORITO"
-                  }
-                  title={filter === "Para ti" ? "En tu misma frecuencia" : "Hecho para tu momento"}
-                  action="Explorar todo"
-                  onAction={() => navigate("search")}
-                />
-                <div className="playlist-grid">
-                  {visiblePlaylists.map((p) => (
-                    <PlaylistCard
-                      openPlaylist={openPlaylist}
-                      playPlaylist={playPlaylist}
-                      key={p.id}
-                      p={p}
+              {filter !== "Demo" && (
+                <>
+                  {(filter === "Todo" || localTracks.length > 0) && (
+                    <LocalWelcome
+                      count={localTracks.length}
+                      onImport={() => navigate("device")}
+                      onAlbums={() => navigate("albums")}
+                      onArtists={() => navigate("artists")}
+                      onDemo={() => setFilter("Demo")}
                     />
-                  ))}
-                </div>
-              </section>
-              <section className="trending-section">
-                <SectionHeading
-                  eyebrow="DALE UNA OPORTUNIDAD"
-                  title="En nuestra frecuencia"
-                  action="Ver canciones"
-                  onAction={() => {
-                    navigate("search");
-                    setQuery("Onda Studio");
-                  }}
-                />
-                <TrackRows
-                  current={current}
-                  playing={playing}
-                  duration={duration}
-                  liked={liked}
-                  playTrack={playTrack}
-                  toggleLike={toggleLike}
-                  setModal={setModal}
-                  list={tracks.slice(0, 4)}
-                  compact
-                />
-              </section>
+                  )}
+                  {filter === "Mi música" && !localTracks.length && (
+                    <section className="home-filter-empty">
+                      <Music2 size={35} />
+                      <h2>Tu música empieza aquí.</h2>
+                      <p>
+                        Añade canciones de tu dispositivo y encontrarás aquí tus álbumes, artistas y
+                        últimas escuchas.
+                      </p>
+                      <button className="primary-button" onClick={() => navigate("device")}>
+                        <HardDrive size={16} /> Añadir mi música
+                      </button>
+                    </section>
+                  )}
+                  <HomePersonalization
+                    history={listening}
+                    tracks={tracks}
+                    localTracks={localTracks}
+                    current={current}
+                    progress={progress}
+                    playing={playing}
+                    onResume={() => {
+                      if (!playing) playTrack(current, queue);
+                    }}
+                    onPlay={playTrack}
+                    onLibrary={() => navigate("device")}
+                    renderTracks={renderTracks}
+                    localOnly={filter === "Mi música"}
+                  />
+                </>
+              )}
+              {filter !== "Mi música" && (
+                <>
+                  <p className="demo-disclosure">
+                    <Disc3 size={14} /> Demo de Onda · Selecciones con instrumentales de muestra.
+                  </p>
+                  <section className="hero">
+                    <img
+                      className="hero-photo"
+                      src={img("coast")}
+                      alt="Atardecer dorado junto al mar"
+                    />
+                    <div className="hero-overlay" />
+                    <div className="hero-content">
+                      <span className="hero-kicker">
+                        <span className="hero-dot" /> UNA SELECCIÓN PARA PROBAR
+                      </span>
+                      <h2>
+                        El mundo puede
+                        <br />
+                        esperar un rato.
+                      </h2>
+                      <p>
+                        Deja que el día baje el ritmo.
+                        <br />
+                        Nosotros ponemos la música.
+                      </p>
+                      <div className="hero-actions">
+                        <button
+                          className="primary-button"
+                          onClick={() => playPlaylist(playlists[0])}
+                        >
+                          <Play size={17} fill="currentColor" /> Dale play a tu tarde
+                        </button>
+                        <button
+                          className="hero-discover"
+                          onClick={() => openPlaylist(playlists[0])}
+                        >
+                          Explorar playlist <ArrowUpRight size={17} />
+                        </button>
+                      </div>
+                      <div className="hero-credit">
+                        <span className="tiny-logo">
+                          <Wave small />
+                        </span>{" "}
+                        Demo de Onda <span>·</span> 4 canciones de muestra
+                      </div>
+                    </div>
+                    <button
+                      className="hero-album"
+                      onClick={() => openPlaylist(playlists[0])}
+                      aria-label="Abrir Late Summer"
+                    >
+                      <Cover playlist={playlists[0]} />
+                      <span className="hero-album-caption">
+                        <span>LA BANDA SONORA DE TU TARDE</span>
+                        <ArrowUpRight size={15} />
+                      </span>
+                    </button>
+                    <span className="hero-edition">VOL. 001 — GOOD DAYS AHEAD</span>
+                  </section>
+                  <section className="recent-section">
+                    <div className="small-section-title">
+                      <h2>{hasOwnShortcuts ? "Accesos de tu biblioteca" : "Explora la demo"}</h2>
+                      <span>{hasOwnShortcuts ? "TU SELECCIÓN" : "MÚSICA DE MUESTRA"}</span>
+                    </div>
+                    <div className="quick-grid">
+                      {quickPlaylists.map((p) => (
+                        <div className="quick-item" key={p.id}>
+                          <button onClick={() => openPlaylist(p)}>
+                            {p.id === "liked" ? (
+                              <div className="liked-cover">
+                                <Heart size={22} fill="white" />
+                              </div>
+                            ) : (
+                              <img src={img(p.cover)} alt="" />
+                            )}
+                            <span>{p.title}</span>
+                          </button>
+                          <IconButton
+                            title={`Reproducir ${p.title}`}
+                            onClick={() => playPlaylist(p)}
+                          >
+                            <Play size={16} fill="currentColor" />
+                          </IconButton>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="discovery-section">
+                    <SectionHeading
+                      eyebrow="EXPLORA LOS SONIDOS DE MUESTRA"
+                      title="Un sonido para cada momento"
+                      action="Explorar todo"
+                      onAction={() => navigate("search")}
+                    />
+                    <div className="playlist-grid">
+                      {visiblePlaylists.map((p) => (
+                        <PlaylistCard
+                          openPlaylist={openPlaylist}
+                          playPlaylist={playPlaylist}
+                          key={p.id}
+                          p={p}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                  <section className="trending-section">
+                    <SectionHeading
+                      eyebrow="DALE UNA OPORTUNIDAD"
+                      title="Canciones para probar Onda"
+                      action="Ver canciones"
+                      onAction={() => {
+                        navigate("search");
+                        setQuery("Onda Studio");
+                      }}
+                    />
+                    <TrackRows
+                      current={current}
+                      playing={playing}
+                      duration={duration}
+                      liked={liked}
+                      playTrack={playTrack}
+                      toggleLike={toggleLike}
+                      setModal={setModal}
+                      list={demoTracks.slice(0, 4)}
+                      compact
+                    />
+                  </section>
+                </>
+              )}
               <footer className="main-footer">
                 <span>
                   <Wave small /> Hecho para sentir.
@@ -1658,7 +1676,9 @@ function App() {
           </button>
           <div>
             <strong>{current.title}</strong>
-            <span>{current.artist}</span>
+            <span>
+              {current.artist} · {current.source === "local" ? "Local" : "Demo"}
+            </span>
           </div>
           <IconButton
             title={liked.includes(current.id) ? "Quitar de me gusta" : "Guardar en me gusta"}

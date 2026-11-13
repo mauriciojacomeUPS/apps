@@ -87,13 +87,21 @@ La cola muestra las canciones pendientes junto a lo que suena ahora. Puedes aña
 
 Los patrones de referencia y los límites de la observación de Spotify están documentados en [la revisión con REA](docs/rea-spotify-observations.md).
 
+## Panel de inicio
+
+Sin cuenta, la cabecera muestra **Iniciar sesión** y **Opciones de Onda**. El avatar aparece solamente con una cuenta conectada y usa una inicial del nombre o correo de esa cuenta. Entrar es opcional para escuchar archivos locales.
+
+El inicio prioriza añadir música del dispositivo. Sus filtros **Todo**, **Mi música** y **Demo** separan tu biblioteca de los instrumentales de muestra. El reproductor también identifica el origen local o demo. Las selecciones de muestra no se guardan automáticamente en bibliotecas nuevas; los favoritos y playlists existentes se conservan.
+
+El lateral permite buscar sin distinguir tildes y ordenar playlists por **Nombre** o **Recientes** (últimas aperturas, con el orden de guardado como respaldo). Estos ajustes se conservan por perfil. El menú de opciones se cierra al pulsar Escape o fuera de él; la instalación/offline se encuentra allí y no requiere entrar a una cuenta.
+
 ## Continuar escuchando y usar sin conexión
 
 El reproductor conserva canción, posición, orden de la cola (incluidas entradas repetidas), volumen, aleatorio y repetición para cada perfil de este navegador. Al recargar se restaura **en pausa**: pulsa reproducir para continuar. El inicio muestra las escuchadas recientemente, las recién añadidas y las más reproducidas según el uso local, sin enviar historial a un servidor.
 
 Los controles multimedia del sistema y auriculares usan Media Session cuando el navegador la admite. Su disponibilidad en la pantalla bloqueada depende del dispositivo.
 
-La compilación de producción es una PWA. Abre la web una vez con internet para preparar sus archivos y después podrás reabrirla y escuchar las canciones locales sin conexión. **Perfil → Usar sin conexión** muestra el estado; **Instalar Onda** aparece cuando el navegador ofrece instalación. Las nuevas versiones piden una actualización manual y esperan a que pauses la música. Más detalles y pasos de prueba en [uso sin conexión](docs/offline.md).
+La compilación de producción es una PWA. Abre la web una vez con internet para preparar sus archivos y después podrás reabrirla y escuchar las canciones locales sin conexión. **Opciones de Onda → Usar sin conexión** (o desde el perfil si has iniciado sesión) muestra el estado; **Instalar Onda** aparece cuando el navegador ofrece instalación. Las nuevas versiones piden una actualización manual y esperan a que pauses la música. Más detalles y pasos de prueba en [uso sin conexión](docs/offline.md).
 
 ## Descargas y conversión en Onda local
 

@@ -5,7 +5,7 @@ Onda se puede instalar como aplicación web progresiva (PWA). La música permane
 ## Preparar y probar
 
 1. Publica una compilación de producción por HTTPS, por ejemplo en GitHub Pages. Para probar localmente ejecuta `npm run build -- --base=/apps/` y `npm run preview -- --port 4173 --base=/apps/`, y abre `http://localhost:4173/apps/`.
-2. Con internet, abre Onda y añade canciones en **Mi música**. En **Perfil → Usar sin conexión**, espera el estado **Lista para usar sin conexión**. La primera preparación guarda aproximadamente 4 MB de archivos públicos de la aplicación.
+2. Con internet, abre Onda y añade canciones en **Mi música**. En **Opciones de Onda → Usar sin conexión** (o desde el perfil si has iniciado sesión), espera el estado **Lista para usar sin conexión**. La primera preparación guarda aproximadamente 4 MB de archivos públicos de la aplicación.
 3. Si aparece **Instalar Onda**, úsalo. En navegadores que no muestran ese botón, busca **Instalar aplicación** o **Añadir a pantalla de inicio** en su menú. La instalación y los controles del sistema dependen del navegador y del dispositivo.
 4. Reproduce una canción, pausa y desactiva la conexión. Recarga la misma dirección en el mismo navegador: debe aparecer el aviso **Sin conexión** y la biblioteca debe seguir disponible. El reproductor recupera la posición en pausa; pulsa reproducir.
 

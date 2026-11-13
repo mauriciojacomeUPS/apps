@@ -13,9 +13,12 @@ export default function HomePersonalization({
   onPlay,
   onLibrary,
   renderTracks,
+  localOnly = false,
 }) {
   const byId = new Map(tracks.map((track) => [track.id, track]));
-  const recent = history.filter((item) => byId.has(item.trackId));
+  const recent = history.filter(
+    (item) => byId.has(item.trackId) && (!localOnly || byId.get(item.trackId).source === "local"),
+  );
   const popular = [...recent]
     .filter((item) => item.plays > 1)
     .sort((a, b) => b.plays - a.plays)
@@ -46,7 +49,7 @@ export default function HomePersonalization({
   );
   return (
     <div className="personal-home">
-      {recent.length > 0 && (
+      {recent.length > 0 && (!localOnly || current.source === "local") && (
         <section className="continue-section">
           <div className="personal-heading">
             <div>
@@ -66,6 +69,10 @@ export default function HomePersonalization({
               <Play size={21} fill="currentColor" />
             </span>
           </button>
+        </section>
+      )}
+      {recent.length > 0 && (
+        <section>
           <h3 className="personal-subheading">Escuchadas recientemente</h3>
           {cards(
             recent.slice(0, 6).map((item) => byId.get(item.trackId)),
