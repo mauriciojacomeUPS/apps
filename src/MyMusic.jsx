@@ -39,6 +39,7 @@ export default function MyMusic({
   notify,
   onRemove,
   onOptions,
+  onImportPlaylist,
 }) {
   const filesInput = useRef(null);
   const folderInput = useRef(null);
@@ -85,7 +86,7 @@ export default function MyMusic({
       sort === "recent" ? b.createdAt - a.createdAt : a[sort].localeCompare(b[sort], "es"),
     );
   }, [tracks, query, sort]);
-  const importFiles = async (selection) => {
+  const importFiles = async (selection, { silent = false } = {}) => {
     if (busy || !selection.length) return;
     setBusy(true);
     setError("");
@@ -94,14 +95,14 @@ export default function MyMusic({
     try {
       const result = await library.importFiles(selection, setProgress);
       setReport(result);
-      if (result.added.length)
+      if (result.added.length && !silent)
         notify(
           result.added.length +
             (result.added.length === 1
               ? " canción añadida a tu biblioteca."
               : " canciones añadidas a tu biblioteca."),
         );
-      else if (result.duplicates) notify("Estas canciones ya están en tu biblioteca.");
+      else if (result.duplicates && !silent) notify("Estas canciones ya están en tu biblioteca.");
       return result;
     } catch (e) {
       setError(e.message);
@@ -259,7 +260,12 @@ export default function MyMusic({
           vuelve a seleccionar los archivos. Los originales permanecen intactos.
         </span>
       </p>
-      <MediaTools importing={busy} onImport={importFiles} />
+      <MediaTools
+        importing={busy}
+        onImport={importFiles}
+        onChooseFiles={() => filesInput.current.click()}
+        onImportPlaylist={onImportPlaylist}
+      />
       {error && !modal && (
         <p className="device-error" role="alert">
           {error}

@@ -81,7 +81,7 @@ Para desarrollo, copia `.env.example` a `.env` y completa solo las dos variables
 
 En una playlist personal, el menú de opciones permite editar el nombre, la descripción y la portada (JPG, PNG o WebP hasta 5 MB), crear una copia o eliminarla con confirmación. Las flechas de cada canción cambian su orden; su menú permite quitarla de la lista sin borrar el archivo local. Los detalles y el orden se conservan en este navegador, separados por cuenta.
 
-El mismo menú exporta **JSON** o **M3U**. Usa **Biblioteca → Importar** para recuperar una lista: primero selecciona las canciones en ese navegador. La vista previa informa de archivos encontrados, ausentes y ambiguos. JSON identifica los archivos de Onda por su contenido; M3U usa rutas o nombres únicos. Estos archivos contienen la selección y sus detalles, nunca el audio ni la cuenta. Las URLs remotas de una M3U se omiten.
+El mismo menú exporta **JSON** o **M3U**. Usa **Biblioteca → Importar** para recuperar una lista JSON/M3U o importar un **CSV de Spotify**: primero selecciona las canciones en ese navegador. La vista previa informa de archivos encontrados, ausentes y ambiguos. JSON identifica los archivos de Onda por su contenido; M3U usa rutas o nombres únicos. Estos archivos contienen la selección y sus detalles, nunca el audio ni la cuenta. Las URLs remotas de una M3U se omiten.
 
 La cola muestra las canciones pendientes junto a lo que suena ahora. Puedes añadir varias veces una canción, subir o bajar cada entrada y quitarla individualmente. «Vaciar cola» pide confirmación y conserva la canción actual. Al terminar la última canción, la reproducción se detiene salvo que actives «Repetir canción».
 
@@ -105,11 +105,17 @@ La compilación de producción es una PWA. Abre la web una vez con internet para
 
 ## Descargas y conversión en Onda local
 
-En **En este dispositivo → Descargas y conversión**, pega un enlace a un video o una playlist de YouTube, o elige un archivo de audio o video. Selecciona MP3, M4A, FLAC o WAV y guarda el resultado. Puedes añadir un audio individual directamente a la biblioteca. Para una playlist, guarda el ZIP, extráelo y selecciona la carpeta resultante en Onda. Si YouTube omite algún video, el ZIP incluye un informe.
+En **En este dispositivo → Descargas y conversión**, elige **YouTube**, **Spotify · listas** o **Archivo del equipo**. Con el servidor local, pega un video/playlist de YouTube o convierte un archivo a MP3, M4A, FLAC o WAV. Un enlace de video que también contenga una lista permite elegir **Descargar toda la playlist**.
+
+La playlist preparada se puede **Añadir a biblioteca** pista por pista: Onda muestra progreso y duplicados, y permite detener la importación conservando lo añadido. El ZIP sigue disponible con la lista M3U8 y un informe de pistas omitidas. Ya no es necesario extraerlo para añadirlo en ese navegador.
+
+**Spotify · listas** importa un CSV de metadatos (por ejemplo, exportado con [Exportify](https://exportify.app/)), con columnas `Track Name` / `Artist Name(s)` o `Título` / `Artista`. Onda enlaza exclusivamente los archivos locales que coincidan por título y artista. La vista previa muestra ausentes y ambiguos; no descarga audio de Spotify ni convierte sus archivos offline protegidos. Esta importación funciona también en GitHub Pages y en el iPhone.
+
+En iPhone, **Añadir desde Archivos del iPhone** abre el selector de audios. La web publicada explica cuándo falta el servidor de descargas en vez de mostrar solo el título del panel. Cuando hay un resultado de audio disponible y el navegador admite compartir archivos, **Preparar para compartir → Compartir / Guardar en Archivos** prepara un `File` antes de abrir la hoja de compartir. MP3 y M4A son las opciones recomendadas. Guía y límites en [descargas y iPhone](docs/downloads.md).
 
 - Abre la app desde `http://localhost:5173/` o `http://127.0.0.1:5173/` con `npm run dev -- --port 5173`. La herramienta se ejecuta en ese equipo. La versión estática de GitHub Pages conserva el reproductor y la importación de archivos.
 - Instala [FFmpeg](https://ffmpeg.org/download.html) para convertir y [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases/latest) para YouTube. Puedes poner los ejecutables en el `PATH`, en `%LOCALAPPDATA%\Onda\bin` en Windows, o indicar sus rutas absolutas en `.env.local` mediante `ONDA_FFMPEG_PATH` y `ONDA_YTDLP_PATH`.
-- El audio y los archivos de entrada se procesan en una carpeta temporal local. El límite es de 100 MB por archivo y 1 GB por ZIP. Guarda el resultado antes de iniciar otra operación o cerrar el servidor.
+- El audio y los archivos de entrada se procesan en una carpeta temporal local. El límite es de 100 MB por audio y 1 GB por playlist. El ZIP y sus pistas se conservan hasta iniciar otra operación, cerrar el servidor o pasar 30 minutos sin transferencias. Guarda o importa el resultado antes de ese momento.
 
 ## Contenido de muestra
 

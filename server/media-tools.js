@@ -23,13 +23,17 @@ const jobRoot = resolve(tmpdir());
 const jobPrefix = "onda-media-";
 
 function json(response, status, value) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
   response.end(JSON.stringify(value));
 }
 
 function isLocal(request) {
   if (!localPeers.has(request.socket.remoteAddress)) return false;
-  if (request.headers["sec-fetch-site"] && request.headers["sec-fetch-site"] !== "same-origin") return false;
+  if (request.headers["sec-fetch-site"] && request.headers["sec-fetch-site"] !== "same-origin")
+    return false;
   try {
     const protocol = request.socket.encrypted ? "https://" : "http://";
     const url = new URL(protocol + request.headers.host);
@@ -45,10 +49,26 @@ function isLocal(request) {
 
 function describe(job) {
   if (!job) return null;
-  const { id, state, message, done, total, saved, skipped, notice, result } = job;
+  const { id, state, message, done, total, saved, skipped, notice, result, items } = job;
   return {
-    id, state, message, done, total, saved, skipped, notice,
+    id,
+    state,
+    message,
+    done,
+    total,
+    saved,
+    skipped,
+    notice,
     result: result && { name: result.name, type: result.type, size: result.size },
+    items:
+      state === "ready" && items
+        ? items.map((item, index) => ({
+            id: index,
+            name: item.name,
+            type: item.type,
+            size: item.size,
+          }))
+        : undefined,
   };
 }
 
@@ -79,7 +99,8 @@ async function requestSource(request) {
     }
     return { format, originalName };
   }
-  if (type !== "application/json") throw new MediaError("Selecciona un archivo o pega un enlace de YouTube.");
+  if (type !== "application/json")
+    throw new MediaError("Selecciona un archivo o pega un enlace de YouTube.");
   let body = "";
   for await (const chunk of request) {
     body += chunk.toString("utf8");
@@ -91,23 +112,30 @@ async function requestSource(request) {
   } catch {
     throw new MediaError("No se pudo leer el enlace.");
   }
-  return { format: data?.format, youtube: youtubeSource(data?.url) };
+  return {
+    format: data?.format,
+    youtube: youtubeSource(data?.url, { preferPlaylist: data?.playlist === true }),
+  };
 }
 
 async function archive(job, output) {
   const path = join(job.dir, "playlist.zip");
   const zip = new yazl.ZipFile();
   zip.on("error", (error) => zip.outputStream.destroy(error));
-  const write = pipeline(zip.outputStream, createWriteStream(path), { signal: job.controller.signal });
+  const write = pipeline(zip.outputStream, createWriteStream(path), {
+    signal: job.controller.signal,
+  });
   for (const file of output.files) zip.addFile(file.path, file.name, { compress: false });
-  zip.addBuffer(Buffer.from("#EXTM3U\r\n" + output.files.map((file) => file.name).join("\r\n") + "\r\n"), "Playlist.m3u8");
+  zip.addBuffer(
+    Buffer.from("#EXTM3U\r\n" + output.files.map((file) => file.name).join("\r\n") + "\r\n"),
+    "Playlist.m3u8",
+  );
   if (output.skipped.length) {
     zip.addBuffer(Buffer.from(output.skipped.join("\r\n") + "\r\n"), "No descargadas.txt");
   }
   zip.end();
   await write;
   const { size } = await stat(path);
-  await Promise.all(output.files.map((file) => rm(file.path, { force: true })));
   return { path, name: output.name, type: "application/zip", size };
 }
 
@@ -119,7 +147,8 @@ export function mediaTools(env) {
     const log = server.config.logger;
 
     async function removeFiles(job) {
-      if (!job?.dir || dirname(job.dir) !== jobRoot || !basename(job.dir).startsWith(jobPrefix)) return;
+      if (!job?.dir || dirname(job.dir) !== jobRoot || !basename(job.dir).startsWith(jobPrefix))
+        return;
       await rm(job.dir, { recursive: true, force: true }).catch((error) => log.warn(error.message));
     }
 
@@ -140,13 +169,18 @@ export function mediaTools(env) {
           ? await downloadYoutube(tools, job, source.youtube)
           : await convertFile(tools, job, input, source.originalName);
         job.result = output.files ? await archive(job, output) : output;
+        job.items = output.files;
         job.controller.signal.throwIfAborted();
         job.state = "ready";
         job.message = "Tu descarga está lista.";
       } catch (error) {
         job.state = job.controller.signal.aborted ? "cancelled" : "error";
-        job.message = job.state === "cancelled" ? "Operación cancelada." : error instanceof MediaError
-          ? error.message : "No se pudo preparar el audio. Vuelve a intentarlo.";
+        job.message =
+          job.state === "cancelled"
+            ? "Operación cancelada."
+            : error instanceof MediaError
+              ? error.message
+              : "No se pudo preparar el audio. Vuelve a intentarlo.";
         if (job.state === "error" && !(error instanceof MediaError)) log.error(error.message);
         await removeFiles(job);
       } finally {
@@ -157,7 +191,8 @@ export function mediaTools(env) {
 
     async function start(request, response) {
       const source = await requestSource(request);
-      if (!supportsFormat(source.format)) throw new MediaError("Elige un formato de audio disponible.");
+      if (!supportsFormat(source.format))
+        throw new MediaError("Elige un formato de audio disponible.");
       const tools = await localExecutables(env);
       if (!tools.ffmpeg || (source.youtube && !tools.ytDlp)) {
         return json(response, 503, { error: "Faltan los programas locales para esta operación." });
@@ -197,18 +232,24 @@ export function mediaTools(env) {
       }
     }
 
-    async function sendResult(job, response) {
-      if (job.state !== "ready") return json(response, 409, { error: "La descarga aún no está lista." });
-      const { name, type, size, path } = job.result;
-      const filename = encodeURIComponent(name).replace(/['()]/g, (character) =>
-        "%" + character.charCodeAt(0).toString(16),
+    async function sendResult(job, response, selected = job.result) {
+      if (job.state !== "ready")
+        return json(response, 409, { error: "La descarga aún no está lista." });
+      const { name, type, size, path } = selected;
+      const filename = encodeURIComponent(name).replace(
+        /['()]/g,
+        (character) => "%" + character.charCodeAt(0).toString(16),
       );
       job.transfers++;
       try {
         response.writeHead(200, {
           "Content-Type": type,
           "Content-Length": size,
-          "Content-Disposition": "attachment; filename*=UTF-8''" + filename,
+          "Content-Disposition":
+            'attachment; filename="' +
+            name.replace(/[^\x20-\x7e]|["\\]/g, "_") +
+            "\"; filename*=UTF-8''" +
+            filename,
           "Cache-Control": "no-store",
           "X-Content-Type-Options": "nosniff",
         });
@@ -223,19 +264,34 @@ export function mediaTools(env) {
       const path = (request.url || "").split("?")[0];
       if (path !== prefix && !path.startsWith(prefix + "/")) return next();
       if (!isLocal(request)) {
-        return json(response, 403, { error: "Abre Onda desde localhost para usar esta herramienta." });
+        return json(response, 403, {
+          error: "Abre Onda desde localhost para usar esta herramienta.",
+        });
       }
       const route = path.slice(prefix.length);
       try {
         if (route === "/status" && request.method === "GET") {
           const { ffmpeg, ytDlp } = await localExecutables(env);
-          return json(response, 200, { convert: !!ffmpeg, youtube: !!(ffmpeg && ytDlp), job: describe(current) });
+          return json(response, 200, {
+            convert: !!ffmpeg,
+            youtube: !!(ffmpeg && ytDlp),
+            job: describe(current),
+          });
         }
         if (route === "/jobs" && request.method === "POST") return await start(request, response);
-        const match = /^\/jobs\/([a-f0-9-]+)(\/result)?$/.exec(route);
+        const match = /^\/jobs\/([a-f0-9-]+)(?:\/(result)|\/tracks\/(0|[1-9][0-9]{0,4}))?$/.exec(
+          route,
+        );
         const job = current;
-        if (!job || job.id !== match?.[1]) return json(response, 404, { error: "Esta operación ya no está disponible." });
+        if (!job || job.id !== match?.[1])
+          return json(response, 404, { error: "Esta operación ya no está disponible." });
         if (request.method === "GET" && match[2]) return await sendResult(job, response);
+        if (request.method === "GET" && match[3] !== undefined) {
+          const item = job.items?.[Number(match[3])];
+          if (!item || job.state !== "ready")
+            return json(response, 404, { error: "Esta pista no está disponible." });
+          return await sendResult(job, response, item);
+        }
         if (request.method === "GET") return json(response, 200, describe(job));
         if (request.method === "DELETE" && !match[2] && job.state === "working") {
           job.controller.abort();
@@ -246,7 +302,9 @@ export function mediaTools(env) {
         if (response.destroyed || response.headersSent) return;
         if (error instanceof MediaError) return json(response, 400, { error: error.message });
         log.error(error.message);
-        return json(response, 500, { error: "La herramienta local no pudo completar la operación." });
+        return json(response, 500, {
+          error: "La herramienta local no pudo completar la operación.",
+        });
       }
     });
 

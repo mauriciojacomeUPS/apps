@@ -663,7 +663,7 @@ function App() {
     }
   };
   const finishImport = () => {
-    const { missing, ambiguous, duplicates, remote, ...imported } = modal.imported;
+    const { missing, ambiguous, duplicates, remote, unmatched, ...imported } = modal.imported;
     const playlist = {
       ...imported,
       id: `custom-${crypto.randomUUID()}`,
@@ -1373,6 +1373,7 @@ function App() {
               notify={notify}
               onRemove={removeLocalTrack}
               onOptions={(track) => setModal({ type: "add", track })}
+              onImportPlaylist={() => playlistFile.current.click()}
             />
           )}
           {view === "search" && (
@@ -1851,7 +1852,7 @@ function App() {
       <input
         type="file"
         ref={playlistFile}
-        accept=".json,.m3u,.m3u8"
+        accept=".json,.m3u,.m3u8,.csv,.tsv"
         hidden
         aria-label="Importar archivo de playlist"
         onChange={loadPlaylist}
@@ -2026,6 +2027,9 @@ function App() {
                 <p>
                   La lista se enlaza con canciones que ya tienes en este navegador. No incluye ni
                   descarga archivos de audio.
+                  {modal.imported.source === "spotify-csv"
+                    ? " CSV de Spotify: se comparan título y artista con tus archivos locales."
+                    : ""}
                 </p>
                 <div className="playlist-transfer-summary">
                   <div>
@@ -2047,6 +2051,27 @@ function App() {
                     Primero añade los archivos desde Mi música y vuelve a importar la lista. Si hay
                     nombres repetidos, usa JSON de Onda para identificarlos.
                   </p>
+                )}
+                {modal.imported.unmatched?.length > 0 && (
+                  <details className="playlist-missing-tracks">
+                    <summary>Ver canciones pendientes ({modal.imported.unmatched.length})</summary>
+                    <ul>
+                      {modal.imported.unmatched.slice(0, 30).map((item, index) => (
+                        <li key={index}>
+                          <strong>{item.title || "Sin título"}</strong>
+                          <span>
+                            {item.artist} ·{" "}
+                            {item.reason === "ambiguous"
+                              ? "Hay varios archivos que coinciden"
+                              : "Falta un archivo que coincida"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {modal.imported.unmatched.length > 30 && (
+                      <p>Mostrando las primeras 30 canciones pendientes.</p>
+                    )}
+                  </details>
                 )}
                 <button
                   className="primary-button"

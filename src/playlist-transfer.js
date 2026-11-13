@@ -1,3 +1,4 @@
+import { importSpotifyCsv } from "./spotify-playlist.js";
 const line = (value) =>
   String(value || "")
     .replace(/[\r\n\0]/g, " ")
@@ -55,6 +56,7 @@ export function exportPlaylist(playlist, tracks, format = "json") {
 export function importPlaylist(text, fileName, tracks) {
   if (text.length > 5 * 1024 * 1024) throw new Error("El límite es 5 MB por lista.");
   const clean = text.replace(/^\uFEFF/, "");
+  if (/\.(csv|tsv)$/i.test(fileName)) return importSpotifyCsv(clean, fileName, tracks);
   let title = fileName.replace(/\.(json|m3u8?)$/i, ""),
     description = "",
     cover = "night",
@@ -80,7 +82,7 @@ export function importPlaylist(text, fileName, tracks) {
     const heading = lines.find((item) => item.startsWith("#PLAYLIST:"));
     if (heading) title = heading.slice(10);
     references = lines.filter((item) => !item.startsWith("#")).map((path) => ({ path }));
-  } else throw new Error("Elige una lista JSON, M3U o M3U8.");
+  } else throw new Error("Elige una lista JSON, M3U, M3U8 o un CSV de Spotify.");
   const byId = new Map(tracks.map((track) => [track.id, track]));
   const ids = [],
     seen = new Set();

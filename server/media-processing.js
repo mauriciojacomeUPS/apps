@@ -9,7 +9,12 @@ const MAX_PLAYLIST_BYTES = 1024 * 1024 * 1024;
 const execute = promisify(execFile);
 const videoId = /^[a-z0-9_-]{11}$/i;
 const playlistId = /^[a-z0-9_-]{10,100}$/i;
-const youtubeHosts = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"]);
+const youtubeHosts = new Set([
+  "youtube.com",
+  "www.youtube.com",
+  "m.youtube.com",
+  "music.youtube.com",
+]);
 const formats = new Map([
   ["mp3", { type: "audio/mpeg", args: ["-c:a", "libmp3lame", "-q:a", "2"] }],
   ["m4a", { type: "audio/mp4", args: ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] }],
@@ -28,15 +33,25 @@ export function supportsFormat(format) {
   return formats.has(format);
 }
 
-export function youtubeSource(value) {
+export function youtubeSource(value, { preferPlaylist = false } = {}) {
   let url;
   try {
     url = new URL(value);
   } catch {
     throw new MediaError("Pega un enlace completo a un video o una playlist de YouTube.");
   }
+  if (url.hostname === "open.spotify.com" || url.hostname === "spotify.link")
+    throw new MediaError(
+      "Spotify no entrega archivos de audio para esta descarga. Usa la opción Spotify · listas para importar un CSV de la playlist.",
+      "unsupported-source",
+    );
   if (url.protocol === "https:" && !url.username && !url.password && !url.port) {
     const [first, second] = url.pathname.split("/").slice(1);
+    if (preferPlaylist && youtubeHosts.has(url.hostname) && url.pathname === "/watch") {
+      const id = url.searchParams.get("list");
+      if (!playlistId.test(id)) throw new MediaError("El enlace no contiene una playlist válida.");
+      return { url: "https://www.youtube.com/playlist?list=" + id, playlist: true };
+    }
     if (youtubeHosts.has(url.hostname) && url.pathname === "/playlist") {
       const id = url.searchParams.get("list");
       if (playlistId.test(id)) {
@@ -57,9 +72,10 @@ export function youtubeSource(value) {
 export async function localExecutables(env) {
   async function locate(name, setting) {
     const extension = process.platform === "win32" ? ".exe" : "";
-    const local = process.platform === "win32" && process.env.LOCALAPPDATA
-      ? [join(process.env.LOCALAPPDATA, "Onda", "bin")]
-      : [];
+    const local =
+      process.platform === "win32" && process.env.LOCALAPPDATA
+        ? [join(process.env.LOCALAPPDATA, "Onda", "bin")]
+        : [];
     const paths = [...local, ...(process.env.PATH || "").split(delimiter).filter(Boolean)];
     const candidates = env[setting]
       ? [resolve(env[setting])]
@@ -107,19 +123,41 @@ async function convert(tools, job, input, index, title, tags = []) {
   const { type, args } = formats.get(job.format);
   const path = join(job.dir, `audio-${index}.${job.format}`);
   try {
-    await run(tools.ffmpeg, [
-      "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-      "-protocol_whitelist", "file,pipe",
-      "-format_whitelist", "mov,matroska,webm,mp3,flac,wav,ogg,aac,avi,mpeg,mpegts,aiff,asf,amr,ac3,eac3,flv,au,caf",
-      "-i", input, "-map", "0:a:0", "-vn", "-sn", "-dn",
-      ...args, ...tags, "-fs", String(MAX_AUDIO_BYTES + 1), path,
-    ], job);
+    await run(
+      tools.ffmpeg,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-protocol_whitelist",
+        "file,pipe",
+        "-format_whitelist",
+        "mov,matroska,webm,mp3,flac,wav,ogg,aac,avi,mpeg,mpegts,aiff,asf,amr,ac3,eac3,flv,au,caf",
+        "-i",
+        input,
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        ...args,
+        ...tags,
+        "-fs",
+        String(MAX_AUDIO_BYTES + 1),
+        path,
+      ],
+      job,
+    );
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
     if (/matches no streams|cannot find a matching stream/i.test(error.stderr || "")) {
       throw new MediaError("El archivo no tiene una pista de audio.");
     }
-    throw new MediaError("FFmpeg no pudo convertir este archivo. Comprueba su formato y vuelve a intentarlo.");
+    throw new MediaError(
+      "FFmpeg no pudo convertir este archivo. Comprueba su formato y vuelve a intentarlo.",
+    );
   }
   const { size } = await stat(path);
   if (!size || size > MAX_AUDIO_BYTES) {
@@ -135,33 +173,75 @@ export function convertFile(tools, job, input, originalName) {
 
 function ytArgs(job) {
   return [
-    "--ignore-config", "--no-warnings", "--no-progress", "--encoding", "utf-8",
-    "--no-js-runtimes", "--js-runtimes", "node:" + process.execPath,
-    "--cache-dir", join(job.dir, "youtube-cache"), "--socket-timeout", "15", "--retries", "1",
-    "--extractor-retries", "1", "--fragment-retries", "1", "--sleep-requests", "1",
+    "--ignore-config",
+    "--no-warnings",
+    "--no-progress",
+    "--encoding",
+    "utf-8",
+    "--no-js-runtimes",
+    "--js-runtimes",
+    "node:" + process.execPath,
+    "--cache-dir",
+    join(job.dir, "youtube-cache"),
+    "--socket-timeout",
+    "15",
+    "--retries",
+    "1",
+    "--extractor-retries",
+    "1",
+    "--fragment-retries",
+    "1",
+    "--sleep-requests",
+    "1",
   ];
 }
 
-function youtubeError(error) {
+export function youtubeError(error) {
   const detail = error.stderr || "";
+  if (/tunnel connection failed.*403|proxy.*403|CONNECT.*403/i.test(detail))
+    return new MediaError(
+      "La red de este servidor bloquea la conexión con YouTube. Revisa el acceso a internet del equipo que prepara la descarga.",
+      "proxy-blocked",
+    );
   if (/not a bot|HTTP Error 429|too many requests|captcha/i.test(detail)) {
-    return new MediaError("YouTube limitó las solicitudes. Vuelve a intentarlo más tarde.", "rate-limit");
+    return new MediaError(
+      "YouTube limitó las solicitudes. Vuelve a intentarlo más tarde.",
+      "rate-limit",
+    );
   }
   if (/sign in|login|members.only|age.restrict|private video/i.test(detail)) {
     return new MediaError("YouTube requiere acceso a este video. Prueba con un video público.");
   }
-  if (/max.filesize|larger than/i.test(detail)) return new MediaError("El video supera 100 MB de audio.");
-  return new MediaError("YouTube no entregó el audio. Comprueba el enlace y que el video esté disponible.");
+  if (/max.filesize|larger than/i.test(detail))
+    return new MediaError("El video supera 100 MB de audio.");
+  return new MediaError(
+    "YouTube no entregó el audio. Comprueba el enlace y que el video esté disponible.",
+  );
 }
 
 async function downloadVideo(tools, job, url, index, prefix = "") {
   async function download(format) {
-    const { stdout } = await run(tools.ytDlp, [
-      ...ytArgs(job), "--no-playlist", "--match-filters", "!is_live",
-      "--max-filesize", "100M", "-f", format,
-      "--no-simulate", "--print", "after_move:%(.{filepath,title,artist,uploader})j",
-      "-o", join(job.dir, `input-${index}.%(ext)s`), "--", url,
-    ], job);
+    const { stdout } = await run(
+      tools.ytDlp,
+      [
+        ...ytArgs(job),
+        "--no-playlist",
+        "--match-filters",
+        "!is_live",
+        "--max-filesize",
+        "100M",
+        "-f",
+        format,
+        "--no-simulate",
+        "--print",
+        "after_move:%(.{filepath,title,artist,uploader})j",
+        "-o",
+        join(job.dir, `input-${index}.%(ext)s`),
+        "--",
+        url,
+      ],
+      job,
+    );
     const metadata = JSON.parse(stdout.trim().split(/\r?\n/).at(-1) || "null");
     if (typeof metadata?.filepath !== "string") throw new Error("No downloaded audio");
     return metadata;
@@ -199,9 +279,11 @@ async function downloadVideo(tools, job, url, index, prefix = "") {
 
 async function playlistInfo(tools, job, url) {
   try {
-    const { stdout } = await run(tools.ytDlp, [
-      ...ytArgs(job), "--flat-playlist", "--dump-single-json", "--", url,
-    ], job);
+    const { stdout } = await run(
+      tools.ytDlp,
+      [...ytArgs(job), "--flat-playlist", "--dump-single-json", "--", url],
+      job,
+    );
     return JSON.parse(stdout);
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
@@ -230,22 +312,31 @@ export async function downloadYoutube(tools, job, source) {
   for (let offset = 0; offset < entries.length; offset += parallel) {
     job.controller.signal.throwIfAborted();
     const batch = entries.slice(offset, offset + parallel);
-    const results = await Promise.allSettled(batch.map(async (entry, index) => {
-      const position = offset + index + 1;
-      try {
-        if (!videoId.test(entry?.id)) throw new MediaError("Video no disponible.");
-        const number = String(position).padStart(width, "0");
-        return await downloadVideo(tools, job, "https://www.youtube.com/watch?v=" + entry.id, position, number + " - ");
-      } finally {
-        job.done++;
-      }
-    }));
+    const results = await Promise.allSettled(
+      batch.map(async (entry, index) => {
+        const position = offset + index + 1;
+        try {
+          if (!videoId.test(entry?.id)) throw new MediaError("Video no disponible.");
+          const number = String(position).padStart(width, "0");
+          return await downloadVideo(
+            tools,
+            job,
+            "https://www.youtube.com/watch?v=" + entry.id,
+            position,
+            number + " - ",
+          );
+        } finally {
+          job.done++;
+        }
+      }),
+    );
     job.controller.signal.throwIfAborted();
     for (const [index, result] of results.entries()) {
       const number = String(offset + index + 1).padStart(width, "0");
       const title = safeName(batch[index]?.title || "Video no disponible");
       if (result.status === "rejected") {
-        const reason = result.reason instanceof MediaError ? result.reason.message : "No se pudo procesar.";
+        const reason =
+          result.reason instanceof MediaError ? result.reason.message : "No se pudo procesar.";
         skipped.push(`${number}. ${title} — ${reason}`);
         if (result.reason?.code === "rate-limit") stopReason = result.reason.message;
         continue;
