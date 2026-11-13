@@ -29,12 +29,12 @@ En **Advanced**, la ruta de salud es `/healthz`. Los demás límites ya tienen l
 ## Conectar Onda en el iPhone o PC
 
 1. Abre [Onda](https://mauriciojacomeups.github.io/apps/) y entra en **Mi música → Descargas y conversión → Conectar servidor Render**.
-2. Pega la dirección HTTPS del servicio y tu `ONDA_API_KEY` en los campos correspondientes. Pulsa **Guardar y conectar**.
+2. Comprueba la dirección HTTPS del servicio e introduce tu `ONDA_API_KEY`. La publicación de este repositorio precarga `https://onda-media.onrender.com`; puedes cambiarla si utilizas otro servicio. Pulsa **Guardar y conectar**.
 3. Por defecto, la clave dura solo esta sesión del navegador. **Recordar la clave en este navegador** permite conservarla en ese dispositivo si así lo decides. Cada perfil de Onda guarda su propia conexión.
 4. En **YouTube** o **Otros sitios**, pega un enlace y prepara el audio. En iPhone se recomienda M4A o MP3.
 5. Cuando termine, pulsa **Añadir a biblioteca** para escucharlo offline en ese dispositivo. También puedes usar **Guardar archivo** o **Preparar para compartir → Compartir / Guardar en Archivos**, cuando el navegador lo admita.
 
-La clave nunca se añade al JavaScript de GitHub Pages. No crees una variable `VITE_*` para esa clave. La variable opcional `VITE_MEDIA_API_URL` solo puede contener la dirección pública del servicio; no es necesaria si lo conectas desde el formulario.
+La clave nunca se añade al JavaScript de GitHub Pages. No crees una variable `VITE_*` para esa clave. La variable opcional de repositorio `VITE_MEDIA_API_URL` permite cambiar la dirección pública predeterminada en el workflow de Pages; también puedes cambiarla desde el formulario.
 
 ## Comprobar YouTube desde Render
 
@@ -55,6 +55,8 @@ npm run check:sources -- https://TU-SERVICIO.onrender.com
 ```
 
 Este comando consulta el resultado del arranque sin pedir la clave. Un reinicio o nuevo despliegue vuelve a ejecutar la prueba. Para comprobar desde el equipo local, con FFmpeg y yt-dlp instalados, usa `npm run check:sources` sin URL.
+
+Si falla, `sourceCheck.code` y su mensaje distinguen el tiempo agotado (`probe-timeout`), límites de solicitudes (`rate-limit`), acceso requerido, rechazo 403, errores de red, falta de formatos o problemas de conversión. `elapsedMs` indica la duración. Render registra el mismo diagnóstico sin claves, rutas locales ni la salida privada del extractor.
 
 YouTube puede rechazar direcciones de centros de datos, pedir autenticación o limitar solicitudes. Si ocurre, Render Free no garantiza resolverlo. La prueba de este entorno de desarrollo encontró un bloqueo de red hacia YouTube; no demuestra que Render esté bloqueado ni que allí funcione.
 

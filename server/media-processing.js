@@ -221,10 +221,11 @@ async function convert(tools, job, input, index, title, tags = []) {
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
     if (/matches no streams|cannot find a matching stream/i.test(error.stderr || "")) {
-      throw new MediaError("El archivo no tiene una pista de audio.");
+      throw new MediaError("El archivo no tiene una pista de audio.", "no-audio");
     }
     throw new MediaError(
       "FFmpeg no pudo convertir este archivo. Comprueba su formato y vuelve a intentarlo.",
+      "conversion-failed",
     );
   }
   const { size } = await stat(path);
@@ -232,6 +233,7 @@ async function convert(tools, job, input, index, title, tags = []) {
     await rm(path, { force: true });
     throw new MediaError(
       "El audio supera " + Math.round(audioLimit(job) / 1024 / 1024) + " MB. Prueba con MP3 o M4A.",
+      "audio-too-large",
     );
   }
   return { path, name: safeName(title) + "." + job.format, type, size };
@@ -280,12 +282,32 @@ export function youtubeError(error) {
     );
   }
   if (/sign in|login|members.only|age.restrict|private video/i.test(detail)) {
-    return new MediaError("YouTube requiere acceso a este video. Prueba con un video público.");
+    return new MediaError(
+      "YouTube requiere acceso a este video. Prueba con un video público.",
+      "access-required",
+    );
   }
   if (/max.filesize|larger than/i.test(detail))
-    return new MediaError("El video supera 100 MB de audio.");
+    return new MediaError("El video supera el límite de tamaño de audio.", "audio-too-large");
+  if (/HTTP Error 403|Forbidden/i.test(detail))
+    return new MediaError("YouTube rechazó la solicitud desde este servidor.", "source-forbidden");
+  if (/requested format.*not available|no video formats|only images/i.test(detail))
+    return new MediaError(
+      "YouTube no ofreció un formato de audio disponible.",
+      "formats-unavailable",
+    );
+  if (
+    /timed out|timeout|unable to connect|connection reset|name resolution|certificate verify/i.test(
+      detail,
+    )
+  )
+    return new MediaError(
+      "El servidor no pudo completar la conexión con YouTube.",
+      "source-network",
+    );
   return new MediaError(
     "YouTube no entregó el audio. Comprueba el enlace y que el video esté disponible.",
+    "source-unavailable",
   );
 }
 
@@ -360,7 +382,11 @@ async function downloadVideo(
       if (typeof metadata?.filepath !== "string") throw new Error("No downloaded audio");
       return metadata;
     } catch (error) {
-      if (exceeded) throw new MediaError("El audio supera el límite de tamaño del servidor.");
+      if (exceeded)
+        throw new MediaError(
+          "El audio supera el límite de tamaño del servidor.",
+          "audio-too-large",
+        );
       throw error;
     } finally {
       clearInterval(timer);
@@ -401,7 +427,7 @@ async function downloadVideo(
   const artist = metadata.artist || metadata.uploader || "";
   try {
     if ((await stat(input)).size > audioLimit(job)) {
-      throw new MediaError("El audio supera el límite de tamaño del servidor.");
+      throw new MediaError("El audio supera el límite de tamaño del servidor.", "audio-too-large");
     }
     const tags = ["-metadata", "title=" + title];
     if (artist) tags.push("-metadata", "artist=" + artist);
@@ -538,6 +564,7 @@ export const downloadYoutube = (tools, job, source) =>
   downloadMedia(tools, job, { ...source, provider: "youtube" });
 
 export async function runSourceProbe(env, { signal } = {}) {
+  const startedAt = Date.now();
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener("abort", abort, { once: true });
@@ -548,7 +575,7 @@ export async function runSourceProbe(env, { signal } = {}) {
   try {
     const tools = await localExecutables(env);
     if (!tools.ffmpeg || !tools.ytDlp)
-      throw new MediaError("Faltan FFmpeg o yt-dlp en este servidor.");
+      throw new MediaError("Faltan FFmpeg o yt-dlp en este servidor.", "tools-unavailable");
     dir = await mkdtemp(join(tmpdir(), "onda-probe-"));
     const output = await downloadMedia(
       tools,
@@ -560,12 +587,19 @@ export async function runSourceProbe(env, { signal } = {}) {
       status: "passed",
       message: "Se descargó y convirtió el video público de prueba.",
       bytes: output.size,
+      elapsedMs: Date.now() - startedAt,
       checkedAt: new Date().toISOString(),
     };
   } catch (error) {
     return {
       provider: "youtube",
-      status: error.code === "proxy-blocked" || error.code === "rate-limit" ? "blocked" : "failed",
+      status:
+        !controller.signal.aborted &&
+        ["proxy-blocked", "rate-limit", "access-required", "source-forbidden"].includes(error.code)
+          ? "blocked"
+          : "failed",
+      code: controller.signal.aborted ? "probe-timeout" : error.code || "probe-failed",
+      elapsedMs: Date.now() - startedAt,
       message: controller.signal.aborted
         ? "La comprobación agotó su tiempo o se detuvo."
         : error instanceof MediaError

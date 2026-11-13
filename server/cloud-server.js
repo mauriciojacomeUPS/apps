@@ -9,6 +9,24 @@ const METHODS = "GET, POST, DELETE, OPTIONS";
 const HEADERS = "Authorization, Content-Type, X-Onda-Client, X-Onda-Format, X-Onda-Filename";
 const CLIENT = /^(?:[a-f0-9]{64}|[a-zA-Z0-9_-]{43})$/;
 const ARTIFACT = /^\/v1\/media\/jobs\/[a-f0-9-]{36}\/(?:result|tracks\/(?:0|[1-9][0-9]{0,4}))$/;
+const PROBE_REASONS = new Map([
+  [
+    "probe-timeout",
+    "La prueba de YouTube agotó sus 90 segundos. No confirma un bloqueo de acceso.",
+  ],
+  ["proxy-blocked", "La red del servidor bloqueó la conexión con YouTube."],
+  ["rate-limit", "YouTube limitó las solicitudes desde este servidor."],
+  ["access-required", "YouTube exige acceso o restringe el video de prueba."],
+  ["source-forbidden", "YouTube rechazó la solicitud desde este servidor (403)."],
+  ["formats-unavailable", "YouTube no ofreció un formato de audio disponible para la prueba."],
+  ["source-network", "El servidor no pudo completar la conexión de red con YouTube."],
+  ["source-unavailable", "El video de prueba de YouTube no entregó audio."],
+  ["tools-unavailable", "El servidor no encontró FFmpeg o yt-dlp."],
+  ["conversion-failed", "Se obtuvo el archivo, pero FFmpeg no pudo convertirlo."],
+  ["audio-too-large", "El audio de prueba superó el límite de tamaño."],
+  ["no-audio", "El archivo de prueba no contenía una pista de audio."],
+  ["probe-failed", "No se pudo completar la prueba de YouTube desde este servidor."],
+]);
 
 function sameSecret(value, expected) {
   if (typeof value !== "string") return false;
@@ -75,6 +93,12 @@ function cleanProbe(value) {
           : result.status === "blocked"
             ? "La conexión con YouTube está bloqueada desde este servidor."
             : "No se pudo completar la prueba de YouTube desde este servidor.";
+  if (["blocked", "failed"].includes(result.status) && PROBE_REASONS.has(value?.code)) {
+    result.code = value.code;
+    result.message = PROBE_REASONS.get(value.code);
+  }
+  if (Number.isSafeInteger(value?.elapsedMs) && value.elapsedMs >= 0 && value.elapsedMs <= 300_000)
+    result.elapsedMs = value.elapsedMs;
   if (Number.isFinite(value?.bytes) && value.bytes > 0) result.bytes = value.bytes;
   return result;
 }
@@ -215,11 +239,18 @@ export async function startCloudServer(
     probePromise = Promise.resolve()
       .then(() => (probe || processing.runSourceProbe)?.(env, { signal: probeController.signal }))
       .then((result) => {
-        if (!probeController.signal.aborted) sourceCheck = cleanProbe(result);
+        if (!probeController.signal.aborted) {
+          sourceCheck = cleanProbe(result);
+          logger.info?.("Onda source check: " + JSON.stringify(sourceCheck));
+        }
       })
       .catch(() => {
         if (!probeController.signal.aborted)
-          sourceCheck = cleanProbe({ status: "failed", checkedAt: new Date().toISOString() });
+          sourceCheck = cleanProbe({
+            status: "failed",
+            code: "probe-failed",
+            checkedAt: new Date().toISOString(),
+          });
       });
   }
   let closing;

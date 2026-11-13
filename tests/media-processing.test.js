@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MediaError, youtubeSource, youtubeError } from "../server/media-processing.js";
+import {
+  MediaError,
+  youtubeSource,
+  youtubeError,
+  runSourceProbe,
+} from "../server/media-processing.js";
 
 test("canonicalizes video and playlist links before handing them to the downloader", () => {
   const video = { url: "https://www.youtube.com/watch?v=2eZVbrO6Z1M", playlist: false };
@@ -57,6 +62,28 @@ test("downloader distinguishes a blocked proxy from source rate limits and priva
     youtubeError({ stderr: "Sign in to access this private video" }).message,
     /requiere acceso/,
   );
+  for (const [stderr, code] of [
+    ["Sign in to access this private video", "access-required"],
+    ["HTTP Error 403: Forbidden", "source-forbidden"],
+    ["Requested format is not available", "formats-unavailable"],
+    ["Unable to connect: connection reset", "source-network"],
+    ["Video is unavailable", "source-unavailable"],
+  ]) {
+    const error = youtubeError({ stderr: stderr + " /private/path token=private-value" });
+    assert.equal(error.code, code);
+    assert.equal(error.message.includes("private-value"), false);
+  }
+});
+
+test("startup probe reports missing executables separately from an unavailable source", async () => {
+  const result = await runSourceProbe({
+    ONDA_FFMPEG_PATH: "/missing-onda-tools/ffmpeg",
+    ONDA_YTDLP_PATH: "/missing-onda-tools/yt-dlp",
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.code, "tools-unavailable");
+  assert.ok(Number.isSafeInteger(result.elapsedMs) && result.elapsedMs >= 0);
+  assert.equal(result.message.includes("missing-onda-tools"), false);
 });
 
 test("public source validation admits bounded provider URLs and rejects generic proxies, private or unsupported links", async () => {

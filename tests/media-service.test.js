@@ -123,6 +123,8 @@ test("health stays available while one startup probe runs and exposes only sanit
       status: "blocked",
       provider: "unexpected",
       message: apiKey + " /private/path",
+      code: "rate-limit",
+      elapsedMs: 125,
       checkedAt: "2026-11-13T00:00:00.000Z",
       bytes: 64,
       path: "/secret",
@@ -133,6 +135,9 @@ test("health stays available while one startup probe runs and exposes only sanit
         assert.equal(health.sourceCheck.status, "blocked");
         assert.equal(health.sourceCheck.provider, "youtube");
         assert.equal(health.sourceCheck.bytes, 64);
+        assert.equal(health.sourceCheck.code, "rate-limit");
+        assert.equal(health.sourceCheck.elapsedMs, 125);
+        assert.match(health.sourceCheck.message, /limitó las solicitudes/);
         assert.equal(JSON.stringify(health).includes(apiKey), false);
         assert.equal(JSON.stringify(health).includes("/secret"), false);
         break;
@@ -147,6 +152,31 @@ test("health stays available while one startup probe runs and exposes only sanit
     await instance.close();
   }
   assert.equal(probeSignal.aborted, true);
+});
+
+test("public source diagnostics discard unrecognized error codes and invalid durations", async () => {
+  const instance = await startCloudServer(
+    { ONDA_API_KEY: apiKey, PORT: "0", HOST: "127.0.0.1", ONDA_RUN_SOURCE_CHECK: "true" },
+    {
+      logger: quiet,
+      probe: async () => ({
+        status: "failed",
+        code: apiKey,
+        elapsedMs: -1,
+        message: "private error " + apiKey,
+      }),
+    },
+  );
+  try {
+    const response = await fetch("http://127.0.0.1:" + instance.server.address().port + "/healthz");
+    const { sourceCheck } = await response.json();
+    assert.equal(sourceCheck.status, "failed");
+    assert.equal(sourceCheck.code, undefined);
+    assert.equal(sourceCheck.elapsedMs, undefined);
+    assert.equal(JSON.stringify(sourceCheck).includes(apiKey), false);
+  } finally {
+    await instance.close();
+  }
 });
 
 test(
