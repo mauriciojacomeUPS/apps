@@ -251,7 +251,7 @@ async function runtimeFixture(delay = 0) {
   const entry = join(dir, "src", "cobalt.cjs");
   await writeFile(
     entry,
-    `const http=require('node:http'),fs=require('node:fs');fs.writeFileSync('child.json',JSON.stringify({hasKey:process.env.ONDA_API_KEY!==undefined}));const server=http.createServer((req,res)=>{if(req.url==='/quit'){res.end();server.close(()=>process.exit(9));return;}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({cobalt:{version:'11.7.1',services:['youtube']}}));});setTimeout(()=>server.listen(process.env.API_PORT,process.env.API_LISTEN_ADDRESS),${delay});process.on('SIGTERM',()=>server.close(()=>process.exit(0)));`,
+    `const http=require('node:http'),fs=require('node:fs');fs.writeFileSync('child.json',JSON.stringify({hasKey:process.env.ONDA_API_KEY!==undefined,tracing:process.execArgv.includes('--import')}));const server=http.createServer((req,res)=>{if(req.url==='/quit'){res.end();server.close(()=>process.exit(9));return;}res.setHeader('Content-Type','application/json');res.end(JSON.stringify({cobalt:{version:'11.7.1',services:['youtube']}}));});setTimeout(()=>server.listen(process.env.API_PORT,process.env.API_LISTEN_ADDRESS),${delay});process.on('SIGTERM',()=>server.close(()=>process.exit(0)));`,
   );
   const reserve = http.createServer();
   await new Promise((r) => reserve.listen(0, "127.0.0.1", r));
@@ -268,6 +268,7 @@ async function runtimeFixture(delay = 0) {
       ONDA_COBALT_URL: `http://127.0.0.1:${port}`,
       ONDA_COBALT_ENTRY: entry,
       ONDA_RUN_SOURCE_CHECK: "false",
+      ONDA_RUN_DOWNLOAD_TESTS: "true",
     },
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
@@ -280,6 +281,7 @@ test("the runtime owns its private Cobalt process and closes both services idemp
     runtime = await startMediaRuntime(fixture.env, { logger: quiet });
     const proof = JSON.parse(await readFile(join(fixture.dir, "child.json"), "utf8"));
     assert.equal(proof.hasKey, false);
+    assert.equal(proof.tracing, false);
     const url = `http://127.0.0.1:${runtime.cloud.server.address().port}/healthz`;
     assert.equal((await (await fetch(url)).json()).youtubeEngine, "cobalt");
     await runtime.close();

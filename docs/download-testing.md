@@ -42,7 +42,7 @@ El 13 de noviembre de 2026, las pruebas desde el **entorno administrado de desar
 | SoundCloud       | 3561589 | 143,22 s | Correcta                |
 | Bandcamp         |  208680 |   9,85 s | Correcta                |
 
-El ejemplo de Vimeo pidió acceso. Las evidencias, hashes y resultados de reproducción se guardan en `/workspace/shared/onda-download-matrix/`. Estos resultados no certifican disponibilidad desde Render ni para todos los enlaces de esas webs. Los resultados de Render deben consultarse después de desplegar mediante `downloadChecks`, con su fecha `checkedAt`.
+Los tres archivos también se importaron en Onda, se reprodujeron con Chromium desde una URL local de la biblioteca y permanecieron disponibles después de recargar la página. El ejemplo de Vimeo pidió acceso. Las evidencias, hashes y resultados de reproducción se guardan en `/workspace/shared/onda-download-matrix/`. Estos resultados no certifican disponibilidad desde Render ni para todos los enlaces de esas webs. Los resultados de Render deben consultarse después de desplegar mediante `downloadChecks`, con su fecha `checkedAt`.
 
 Se corrigieron dos problemas descubiertos con Internet Archive: el filtro debe usar el nombre de extractor `archive\.org`, y un elemento con un único audio puede devolver metadatos de video sin `entries`. yt-dlp usa ahora la confianza TLS del sistema (`no-certifi`) para reconocer las CA instaladas; la verificación de certificados permanece activada.
 

@@ -48,7 +48,7 @@ export function cobaltEnvironment(env) {
 
 export async function startMediaRuntime(env = process.env, { signal, logger = console } = {}) {
   const network = [];
-  const tracing = env.ONDA_RUN_DOWNLOAD_TESTS === "true";
+  const tracing = env.ONDA_RUN_DOWNLOAD_TESTS === "true" && env.ONDA_RUN_SOURCE_CHECK === "true";
   let child,
     cloud,
     fatal,

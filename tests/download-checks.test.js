@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { runDownloadChecks } from "../server/download-checks.js";
 import { networkObservation } from "../server/cobalt-network-observer.js";
 import { MediaError, mediaSourceError } from "../server/media-processing.js";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 
 const verified = { bytes: 4000, type: "audio/mp4", sha256: "a".repeat(64), verifiedAudio: true };
 
@@ -111,6 +114,44 @@ test("network diagnostics omit signed queries, headers, account data and unrelat
       .error,
     "NETWORK_ERROR",
   );
+});
+
+test("the diagnostic child stops observing before ordinary downloads", async () => {
+  const script = `
+    const dc=require('node:diagnostics_channel');
+    const channel=dc.channel('undici:request:headers');
+    channel.publish({request:{origin:'https://www.youtube.com',path:'/youtubei/v1/player?key=private-value'},response:{statusCode:403}});
+    process.on('disconnect',()=>{
+      console.log(JSON.stringify({subscribed:channel.hasSubscribers}));
+    });
+  `;
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      fileURLToPath(new URL("../server/cobalt-network-observer.js", import.meta.url)),
+      "-e",
+      script,
+    ],
+    { stdio: ["ignore", "pipe", "pipe", "ipc"] },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  const exited = once(child, "exit");
+  try {
+    const [message] = await once(child, "message");
+    assert.equal(message.status, 403);
+    assert.equal(message.path, "/youtubei/v1/player");
+    assert.equal(JSON.stringify(message).includes("private-value"), false);
+    child.send({ kind: "onda-stop-diagnostics" });
+    const [code] = await exited;
+    assert.equal(code, 0);
+    assert.deepEqual(JSON.parse(output), { subscribed: false });
+  } finally {
+    if (child.exitCode === null) child.kill();
+  }
 });
 
 test("source errors refer to the actual provider and never expose extractor details", () => {
