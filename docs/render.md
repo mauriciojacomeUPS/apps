@@ -2,6 +2,8 @@
 
 GitHub Pages sigue sirviendo Onda. Este servicio separado prepara audio a partir de enlaces públicos; no recibe los archivos que importas desde tu dispositivo ni usa Supabase. Puedes acceder desde casa, desde el iPhone o desde otra red, sin mantener encendido tu PC.
 
+La imagen actual incorpora [Cobalt experimental para YouTube](cobalt.md) dentro del mismo servicio. Consulta esa guía para actualizar un servicio existente, comprobar el motor activo o volver a yt-dlp. Cobalt procesa por ahora un video por operación; el acceso real a YouTube se verifica después del despliegue.
+
 ## Desplegar
 
 1. Entra en tu cuenta de Render y abre [Deploy to Render](https://render.com/deploy?repo=https://github.com/mauriciojacomeUPS/apps).

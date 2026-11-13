@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.js",
     "test:e2e": "playwright test",
-    "start:media": "node server/cloud-server.js",
+    "start:media": "node server/start-media.js",
     "check:sources": "node server/check-sources.js"
   },
   "dependencies": {

@@ -4,6 +4,10 @@ import { access, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { MediaError } from "./media-error.js";
+import { youtubeEngine, cobaltInfo, downloadCobalt } from "./cobalt-client.js";
+export { MediaError } from "./media-error.js";
+export { youtubeEngine } from "./cobalt-client.js";
 
 export const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 const MAX_PLAYLIST_BYTES = 1024 * 1024 * 1024;
@@ -23,13 +27,6 @@ const formats = new Map([
   ["flac", { type: "audio/flac", args: ["-c:a", "flac"] }],
   ["wav", { type: "audio/wav", args: ["-c:a", "pcm_s16le"] }],
 ]);
-
-export class MediaError extends Error {
-  constructor(message, code) {
-    super(message);
-    this.code = code;
-  }
-}
 
 export function supportsFormat(format) {
   return formats.has(format);
@@ -163,7 +160,9 @@ export async function localExecutables(env) {
     locate("ffmpeg", "ONDA_FFMPEG_PATH"),
     locate("yt-dlp", "ONDA_YTDLP_PATH"),
   ]);
-  return { ffmpeg, ytDlp };
+  const engine = youtubeEngine(env);
+  const cobalt = engine === "cobalt" ? await cobaltInfo(env) : null;
+  return { ffmpeg, ytDlp, youtubeEngine: engine, cobalt, env };
 }
 
 function safeName(value) {
@@ -456,6 +455,16 @@ async function playlistInfo(tools, job, url) {
 
 export async function downloadMedia(tools, job, source) {
   source = { ...source, provider: source.provider || "youtube" };
+  if (source.provider === "youtube" && tools.youtubeEngine === "cobalt") {
+    const input = await downloadCobalt(tools.env, job, source);
+    try {
+      const tags = ["-metadata", "title=" + input.title];
+      if (input.artist) tags.push("-metadata", "artist=" + input.artist);
+      return await convert(tools, job, input.path, 1, input.title, tags);
+    } finally {
+      await rm(input.path, { force: true }).catch(() => {});
+    }
+  }
   if (!source.playlist) {
     job.message = "Descargando y convirtiendo el audio…";
     try {
@@ -565,6 +574,7 @@ export const downloadYoutube = (tools, job, source) =>
   downloadMedia(tools, job, { ...source, provider: "youtube" });
 
 export async function runSourceProbe(env, { signal } = {}) {
+  const engine = youtubeEngine(env);
   const startedAt = Date.now();
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -575,16 +585,22 @@ export async function runSourceProbe(env, { signal } = {}) {
   let dir;
   try {
     const tools = await localExecutables(env);
-    if (!tools.ffmpeg || !tools.ytDlp)
+    if (!tools.ffmpeg || (engine === "yt-dlp" && !tools.ytDlp))
       throw new MediaError("Faltan FFmpeg o yt-dlp en este servidor.", "tools-unavailable");
+    if (engine === "cobalt" && !tools.cobalt)
+      throw new MediaError(
+        "La instancia privada de Cobalt no está disponible.",
+        "cobalt-unavailable",
+      );
     dir = await mkdtemp(join(tmpdir(), "onda-probe-"));
     const output = await downloadMedia(
       tools,
       { dir, controller, format: "m4a", limits: { maxAudioBytes: 16 * 1024 * 1024 } },
-      mediaSource("https://www.youtube.com/watch?v=BaW_jenozKc"),
+      mediaSource("https://www.youtube.com/watch?v=jNQXAC9IVRw"),
     );
     return {
       provider: "youtube",
+      engine,
       status: "passed",
       message: "Se descargó y convirtió el video público de prueba.",
       bytes: output.size,
@@ -594,6 +610,7 @@ export async function runSourceProbe(env, { signal } = {}) {
   } catch (error) {
     return {
       provider: "youtube",
+      engine,
       status:
         !controller.signal.aborted &&
         [

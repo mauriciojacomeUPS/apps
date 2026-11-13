@@ -43,6 +43,69 @@ const status = (job) => ({
   },
 });
 
+test("Cobalt is identified as experimental and Mix links request a single video", async ({
+  page,
+  baseURL,
+}) => {
+  const headers = cors(baseURL);
+  let starts = 0;
+  const input = "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=RDaaaaaaaaaaa&start_radio=1";
+  await page.route(cloud + "/**", async (route) => {
+    const request = route.request(),
+      url = new URL(request.url());
+    if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (url.pathname === "/healthz")
+      return route.fulfill({
+        headers,
+        json: {
+          ok: true,
+          sourceCheck: {
+            engine: "cobalt",
+            status: "failed",
+            message: "Cobalt no pudo obtener el audio de prueba.",
+          },
+        },
+      });
+    if (url.pathname === "/v1/media/status")
+      return route.fulfill({
+        headers,
+        json: { ...status(null), youtubeEngine: "cobalt", youtubePlaylists: false },
+      });
+    if (url.pathname === "/v1/media/jobs" && request.method() === "POST") {
+      starts++;
+      expect(request.postDataJSON()).toEqual({ url: input, format: "mp3", playlist: false });
+      return route.fulfill({
+        status: 202,
+        headers,
+        json: { id: jobId, state: "working", provider: "youtube" },
+      });
+    }
+    return route.fulfill({
+      headers,
+      json: {
+        id: jobId,
+        state: "error",
+        provider: "youtube",
+        code: "source-unavailable",
+        message: "Cobalt no pudo obtener el audio.",
+      },
+    });
+  });
+  await page.goto("./#device");
+  await configure(page);
+  await expect(page.locator(".source-probe")).toContainText("Motor: Cobalt experimental");
+  await page.getByLabel("Enlace del video o la playlist", { exact: true }).fill(input);
+  await expect(
+    page.getByRole("checkbox", { name: "Descargar toda la playlist", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".media-tools-note").filter({ hasText: "un video por operación" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Preparar descarga", exact: true }).click();
+  await expect(page.locator(".media-tools-error")).toHaveText("Cobalt no pudo obtener el audio.");
+  expect(starts).toBe(1);
+});
+
 for (const [code, message] of [
   ["source-challenge", "YouTube pide una verificación contra bots a este servidor."],
   ["rate-limit", "YouTube respondió con un límite de solicitudes (429)."],

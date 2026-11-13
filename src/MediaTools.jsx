@@ -175,7 +175,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
             body: JSON.stringify({
               url: url.trim(),
               format,
-              playlist: linkHasPlaylist && fullPlaylist,
+              playlist: linkHasPlaylist && fullPlaylist && availability?.youtubePlaylists !== false,
             }),
           }
         : {
@@ -452,7 +452,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
             {linkMode ? "Preparar descarga" : "Convertir a audio"}
           </button>
           {mode === "file" && <small id="media-tools-limit">Hasta 100 MB por archivo.</small>}
-          {mode === "youtube" && linkHasPlaylist && (
+          {mode === "youtube" && linkHasPlaylist && availability?.youtubePlaylists !== false && (
             <label className="media-playlist-choice">
               <input
                 type="checkbox"
@@ -464,6 +464,12 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
             </label>
           )}
         </form>
+      )}
+      {mode === "youtube" && availability?.youtubeEngine === "cobalt" && (
+        <p className="media-tools-note">
+          Cobalt experimental prepara un video por operación. Los enlaces con Mix se usan solo para
+          ese video; las playlists completas todavía no están disponibles con este motor.
+        </p>
       )}
       {mode === "links" && (
         <p className="media-tools-note">

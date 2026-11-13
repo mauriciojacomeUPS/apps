@@ -118,6 +118,7 @@ export default function MediaServerSettings({
         <p className={"source-probe " + (probe.status === "passed" ? "passed" : "")} role="status">
           <CheckCircle2 size={15} />
           <span>
+            {probe.engine === "cobalt" ? "Motor: Cobalt experimental. " : ""}
             Prueba de YouTube en este servidor:{" "}
             {probe.status === "checking"
               ? "en curso"

@@ -27,6 +27,12 @@ const PROBE_REASONS = new Map([
   ["audio-too-large", "El audio de prueba superó el límite de tamaño."],
   ["no-audio", "El archivo de prueba no contenía una pista de audio."],
   ["probe-failed", "No se pudo completar la prueba de YouTube desde este servidor."],
+  ["cobalt-unavailable", "La instancia privada de Cobalt no está disponible."],
+  ["cobalt-response", "Cobalt no devolvió una respuesta de audio compatible."],
+  ["cobalt-transfer", "Cobalt no pudo entregar el archivo de audio."],
+  ["cobalt-auth", "La instancia privada de Cobalt necesita revisar su configuración de acceso."],
+  ["cobalt-rate-limit", "Cobalt alcanzó su límite de solicitudes."],
+  ["protected-content", "El contenido tiene protección DRM y no se puede preparar."],
 ]);
 
 function sameSecret(value, expected) {
@@ -77,6 +83,7 @@ function cleanProbe(value) {
     provider: "youtube",
     status: valid.has(value?.status) ? value.status : "failed",
   };
+  if (["yt-dlp", "cobalt"].includes(value?.engine)) result.engine = value.engine;
   if (
     typeof value?.checkedAt === "string" &&
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.checkedAt) &&
@@ -113,6 +120,7 @@ export async function startCloudServer(
   if (apiKey.length < 32 || apiKey.length > 512 || /[\r\n]/.test(apiKey))
     throw new Error("Set ONDA_API_KEY to a private random value of at least 32 characters.");
   const allowedOrigins = originsOf(env.ONDA_ALLOWED_ORIGINS);
+  const engine = processing.youtubeEngine(env);
   const port = env.PORT === undefined ? 10000 : Number(env.PORT);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("PORT is invalid.");
   const limits = {
@@ -143,6 +151,7 @@ export async function startCloudServer(
     },
   });
   let sourceCheck = cleanProbe({
+    engine,
     status: env.ONDA_RUN_SOURCE_CHECK === "true" ? "checking" : "disabled",
   });
   const probeController = new AbortController();
@@ -170,6 +179,7 @@ export async function startCloudServer(
           ok: true,
           service: "onda-media",
           version: 1,
+          youtubeEngine: engine,
           sourceCheck,
         });
       if (request.method === "OPTIONS") {

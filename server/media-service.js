@@ -375,7 +375,8 @@ export function createMediaService({
     if (!processing.supportsFormat(source.format))
       throw new MediaHttpError(400, "Elige un formato de audio disponible.");
     const tools = await toolsFor();
-    if (!tools.ffmpeg || (source.remote && !tools.ytDlp))
+    const usesCobalt = source.remote?.provider === "youtube" && tools.youtubeEngine === "cobalt";
+    if (!tools.ffmpeg || (source.remote && !(usesCobalt ? tools.cobalt : tools.ytDlp)))
       throw new MediaHttpError(503, "Faltan los programas necesarios para esta operación.");
     if (closed) throw new MediaHttpError(503, "El servicio se está cerrando.");
     const previous = byOwner.get(owner);
@@ -509,12 +510,21 @@ export function createMediaService({
               : "Abre Onda desde localhost para usar esta herramienta.",
           );
         if (route === "/status" && request.method === "GET") {
-          const { ffmpeg, ytDlp } = await toolsFor();
+          const { ffmpeg, ytDlp, youtubeEngine, cobalt } = await toolsFor();
+          const youtubeReady = Boolean(ffmpeg && (youtubeEngine === "cobalt" ? cobalt : ytDlp));
           return mediaJson(response, 200, {
             convert: !!ffmpeg && !hosted,
-            youtube: !!(ffmpeg && ytDlp),
+            youtube: youtubeReady,
+            youtubeEngine,
+            youtubePlaylists: youtubeEngine !== "cobalt",
             uploads: !hosted,
-            sources: ffmpeg && ytDlp ? processing.MEDIA_SOURCES || providers : [],
+            sources: !ffmpeg
+              ? []
+              : ytDlp
+                ? processing.MEDIA_SOURCES || providers
+                : youtubeReady
+                  ? ["youtube"]
+                  : [],
             limits: {
               maxAudioBytes: limits.maxAudioBytes,
               maxPlaylistBytes: limits.maxPlaylistBytes,

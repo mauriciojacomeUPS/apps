@@ -109,6 +109,8 @@ En **En este dispositivo → Descargas y conversión**, elige **YouTube**, **Otr
 
 Para descargar directamente desde la web en el iPhone, despliega [el servicio gratuito en Render](docs/render.md) y usa **Conectar servidor Render** dentro de Onda. El [Blueprint](https://render.com/deploy?repo=https://github.com/mauriciojacomeUPS/apps) configura Docker, FFmpeg, yt-dlp, una clave privada y una prueba real de YouTube al arrancar. GitHub Pages conserva la web y Supabase sigue siendo solo para usuarios. El servidor no recibe los archivos que seleccionas desde tu dispositivo.
 
+La imagen del servidor incorpora [Cobalt experimental](docs/cobalt.md) como motor de YouTube en una instancia privada del mismo contenedor. Prepara un video por operación, convierte a audio real con FFmpeg y muestra la comprobación del despliegue. No garantiza eliminar restricciones de YouTube. `ONDA_YOUTUBE_ENGINE=yt-dlp` permite volver al motor anterior.
+
 La playlist preparada se puede **Añadir a biblioteca** pista por pista: Onda muestra progreso y duplicados, y permite detener la importación conservando lo añadido. El ZIP sigue disponible con la lista M3U8 y un informe de pistas omitidas. Ya no es necesario extraerlo para añadirlo en ese navegador.
 
 **Spotify · listas** importa un CSV de metadatos (por ejemplo, exportado con [Exportify](https://exportify.app/)), con columnas `Track Name` / `Artist Name(s)` o `Título` / `Artista`. Onda enlaza exclusivamente los archivos locales que coincidan por título y artista. La vista previa muestra ausentes y ambiguos; no descarga audio de Spotify ni convierte sus archivos offline protegidos. Esta importación funciona también en GitHub Pages y en el iPhone.
