@@ -34,6 +34,8 @@ En Render, cambia `ONDA_YOUTUBE_ENGINE` a `yt-dlp` y aplica la configuración. E
 
 ## Evidencia y comprobaciones
 
+La [fase de pruebas de descargas](download-testing.md) añade una ronda con archivos completos de YouTube y otras cuatro fuentes. La imagen de esta fase utiliza el cliente documentado `ANDROID` de Cobalt y publica resultados acotados en `/healthz.downloadChecks`.
+
 La imagen oficial de Cobalt arranca y responde a su API en este entorno. La solicitud pública de prueba devolvió `error.api.fetch.fail`; ese resultado no demuestra acceso a YouTube desde Render. La prueba real de Render se consulta mediante `/healthz` después de desplegar.
 
 Las pruebas de integración usan una instancia local controlada y audio original de muestra para verificar conversión M4A real, descarga autenticada, permisos temporales, límites de streams, rechazo de URLs externas, cancelación y limpieza. Las pruebas del supervisor cubren cierre, cancelación de arranque y salida inesperada del proceso hijo. Las pruebas de navegador cubren escritorio, móvil, enlace Mix como video único y el estado experimental visible.

@@ -38,6 +38,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
   const [retry, setRetry] = useState(0);
   const [connectionError, setConnectionError] = useState("");
   const [probe, setProbe] = useState(null);
+  const [checks, setChecks] = useState(null);
   const client = useMemo(
     () =>
       createMediaClient({
@@ -76,6 +77,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
     setConnectionError("");
     setJob(null);
     setProbe(null);
+    setChecks(null);
     client
       .json("/status", { signal: controller.signal })
       .then((status) => {
@@ -95,7 +97,12 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
           const value = await client.health();
           if (controller.signal.aborted) return;
           setProbe(value.sourceCheck);
-          if (value.sourceCheck?.status === "checking") timer = setTimeout(health, 5000);
+          setChecks(value.downloadChecks);
+          if (
+            value.sourceCheck?.status === "checking" ||
+            value.downloadChecks?.status === "running"
+          )
+            timer = setTimeout(health, 5000);
         } catch {}
       };
       health();
@@ -138,6 +145,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
   }, [jobId, working, client]);
 
   const busy = posting || working || adding || preparingShare;
+  const testing = probe?.status === "checking" || checks?.status === "running";
   const linkMode = mode === "youtube" || mode === "links";
   const enabled = linkMode
     ? availability?.youtube
@@ -159,7 +167,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
   }
   async function start(event) {
     event.preventDefault();
-    if (!enabled || busy) return;
+    if (!enabled || busy || testing) return;
     if (mode === "file" && (!file?.size || file.size > fileLimit)) {
       setError(
         file?.size > fileLimit ? "El archivo supera 100 MB." : "Elige un archivo con audio.",
@@ -301,6 +309,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
         connecting={Boolean(connection.url && availability === null)}
         error={connectionError}
         probe={probe}
+        checks={checks}
         onRetry={() => setRetry((value) => value + 1)}
       />
       <div className="media-tools-modes" role="group" aria-label="Origen del audio">
@@ -448,9 +457,15 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
               ))}
             </select>
           </label>
-          <button type="submit" className="primary-button" disabled={busy}>
+          <button type="submit" className="primary-button" disabled={busy || testing}>
             {linkMode ? "Preparar descarga" : "Convertir a audio"}
           </button>
+          {testing && (
+            <small role="status">
+              El servidor está comprobando las descargas. Podrás preparar tu enlace cuando termine
+              la ronda.
+            </small>
+          )}
           {mode === "file" && <small id="media-tools-limit">Hasta 100 MB por archivo.</small>}
           {mode === "youtube" && linkHasPlaylist && availability?.youtubePlaylists !== false && (
             <label className="media-playlist-choice">
@@ -574,6 +589,7 @@ export default function MediaTools({ importing, onImport, onChooseFiles, onImpor
       )}
       {!error &&
         job?.state === "error" &&
+        job.provider === "youtube" &&
         ["source-challenge", "rate-limit"].includes(job.code) && (
           <div className="media-source-help">
             <h3>La descarga desde YouTube está restringida.</h3>

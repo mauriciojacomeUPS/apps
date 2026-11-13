@@ -43,6 +43,70 @@ const status = (job) => ({
   },
 });
 
+test("download report counts only verified audio and updates when the server finishes its test round", async ({
+  page,
+  baseURL,
+}) => {
+  const headers = cors(baseURL);
+  let healthCalls = 0;
+  await page.route(cloud + "/**", async (route) => {
+    const request = route.request(),
+      url = new URL(request.url());
+    if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
+    if (url.pathname === "/v1/media/status") return route.fulfill({ headers, json: status(null) });
+    if (url.pathname === "/healthz") {
+      healthCalls++;
+      const running = healthCalls === 1;
+      return route.fulfill({
+        headers,
+        json: {
+          ok: true,
+          sourceCheck: { status: running ? "checking" : "failed" },
+          downloadChecks: {
+            status: running ? "running" : "complete",
+            passed: 2,
+            failed: 1,
+            skipped: 0,
+            results: [
+              {
+                id: "youtube-cobalt",
+                label: "YouTube · Cobalt",
+                client: "ANDROID",
+                status: running ? "running" : "failed",
+                message: "La prueba no pudo obtener audio.",
+              },
+              {
+                id: "archive",
+                label: "Internet Archive",
+                status: "passed",
+                bytes: 215243,
+                verifiedAudio: true,
+              },
+              { id: "unverified", label: "Sin archivo", status: "passed", bytes: 0 },
+            ],
+          },
+        },
+      });
+    }
+    return route.fulfill({ status: 404, headers, json: { error: "Unexpected request" } });
+  });
+  await page.goto("./#device");
+  await configure(page);
+  const report = page.locator(".download-test-report");
+  await expect(report.locator("summary")).toHaveText("Pruebas reales de descarga · 1 verificadas");
+  await report.locator("summary").click();
+  await expect(page.getByRole("button", { name: "Preparar descarga", exact: true })).toBeDisabled();
+  await expect(report).toContainText("Ronda terminada.", { timeout: 10000 });
+  await expect(page.getByRole("button", { name: "Preparar descarga", exact: true })).toBeEnabled();
+  await expect(
+    report.getByText("Audio descargado y verificado · 210 KB", { exact: true }),
+  ).toHaveCount(1);
+  await expect(report.getByText("Sin verificación de audio", { exact: true })).toBeVisible();
+  await expect(report).toContainText("YouTube · Cobalt · ANDROID");
+  expect(healthCalls).toBe(2);
+  await page.screenshot({ path: test.info().outputPath("download-tests.png"), fullPage: true });
+});
+
 test("Cobalt is identified as experimental and Mix links request a single video", async ({
   page,
   baseURL,

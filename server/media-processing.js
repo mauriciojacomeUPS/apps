@@ -245,6 +245,9 @@ export function convertFile(tools, job, input, originalName) {
 function ytArgs(job) {
   return [
     "--ignore-config",
+    // Preserve the system trust store, including the managed environment CA.
+    "--compat-options",
+    "no-certifi",
     "--no-warnings",
     "--no-progress",
     "--encoding",
@@ -315,6 +318,29 @@ export function youtubeError(error) {
   );
 }
 
+export function mediaSourceError(error, provider) {
+  if (provider === "youtube") return youtubeError(error);
+  const name = sourceName(provider),
+    detail = error.stderr || "";
+  if (/certificate.verify|certificate verify|self.signed certificate/i.test(detail))
+    return new MediaError("No se pudo validar el certificado TLS de " + name + ".", "source-tls");
+  if (/tunnel connection failed.*403|proxy.*403|CONNECT.*403/i.test(detail))
+    return new MediaError(
+      "La red del servidor bloquea la conexión con " + name + ".",
+      "proxy-blocked",
+    );
+  if (/not a bot|captcha|unusual traffic/i.test(detail))
+    return new MediaError(name + " pide una verificación al servidor.", "source-challenge");
+  if (/HTTP Error 429|too many requests/i.test(detail))
+    return new MediaError(name + " limitó las solicitudes del servidor.", "rate-limit");
+  if (/sign in|login|private|password|members.only/i.test(detail))
+    return new MediaError(name + " requiere acceso para este enlace.", "access-required");
+  return new MediaError(
+    name + " no entregó un audio público para este enlace.",
+    "source-unavailable",
+  );
+}
+
 async function downloadVideo(
   tools,
   job,
@@ -364,7 +390,7 @@ async function downloadVideo(
             soundcloud: "Soundcloud.*",
             bandcamp: "Bandcamp.*",
             vimeo: "Vimeo.*",
-            archive: "ArchiveOrg",
+            archive: "archive\\.org",
           }[source.provider],
           "--match-filters",
           "!is_live",
@@ -405,12 +431,7 @@ async function downloadVideo(
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
     if (error instanceof MediaError) throw error;
-    throw source.provider === "youtube"
-      ? youtubeError(error)
-      : new MediaError(
-          sourceName(source.provider) +
-            " no entregó un audio público. Puede requerir acceso o no permitir su descarga.",
-        );
+    throw mediaSourceError(error, source.provider);
   }
   const inputName = basename(metadata.filepath);
   if (!inputName.startsWith(`input-${index}.`)) {
@@ -431,7 +452,7 @@ async function downloadVideo(
   }
 }
 
-async function playlistInfo(tools, job, url) {
+async function playlistInfo(tools, job, source) {
   try {
     const { stdout } = await run(
       tools.ytDlp,
@@ -442,14 +463,14 @@ async function playlistInfo(tools, job, url) {
         "--playlist-end",
         String((job.limits?.maxPlaylistTracks || 200) + 1),
         "--",
-        url,
+        source.url,
       ],
       job,
     );
     return JSON.parse(stdout);
   } catch (error) {
     if (job.controller.signal.aborted) throw error;
-    throw youtubeError(error);
+    throw mediaSourceError(error, source.provider);
   }
 }
 
@@ -476,7 +497,9 @@ export async function downloadMedia(tools, job, source) {
     }
   }
   job.message = "Leyendo la lista de " + sourceName(source.provider) + "…";
-  const info = await playlistInfo(tools, job, source.url);
+  const info = await playlistInfo(tools, job, source);
+  if (!Array.isArray(info?.entries) && info?._type === "video" && info.formats?.length)
+    return downloadMedia(tools, job, { ...source, playlist: false });
   const maximum = job.limits?.maxPlaylistTracks || 200;
   const entries = info?.entries?.slice(0, maximum);
   if (!entries?.length) throw new MediaError("La playlist está vacía o no se puede abrir.");

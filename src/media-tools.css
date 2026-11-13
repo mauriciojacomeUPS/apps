@@ -345,3 +345,33 @@
     font-size: 11px;
   }
 }
+.download-test-report {
+  margin-top: 16px;
+}
+.download-test-report summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.download-test-report ul {
+  list-style: none;
+  padding: 0;
+}
+.download-test-report li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ffffff14;
+}
+.download-test-report li > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.download-test-report li > div {
+  display: grid;
+  gap: 4px;
+}
+.download-test-report small {
+  color: #b3b3b3;
+  overflow-wrap: anywhere;
+}

@@ -96,38 +96,41 @@ export async function cobaltInfo(env = {}) {
 }
 
 export function cobaltError(value, status) {
-  const code = value?.error?.code || "";
+  const raw = value?.error?.code;
+  const code = typeof raw === "string" && /^error\.api\.[a-z0-9_.]{1,100}$/.test(raw) ? raw : "";
+  const failure = (message, reason) =>
+    Object.assign(new MediaError(message, reason), code ? { upstreamCode: code } : {});
   if (code === "error.api.youtube.login")
-    return new MediaError(
+    return failure(
       "YouTube pide una verificación contra bots también a Cobalt.",
       "source-challenge",
     );
   if (code === "error.api.fetch.rate")
-    return new MediaError(
+    return failure(
       "YouTube limitó las solicitudes de Cobalt. Espera antes de volver a probar.",
       "rate-limit",
     );
   if (status === 429 || code === "error.api.rate_exceeded")
-    return new MediaError(
+    return failure(
       "Cobalt alcanzó su límite de solicitudes. Espera antes de volver a probar.",
       "cobalt-rate-limit",
     );
   if (code.startsWith("error.api.auth."))
-    return new MediaError(
+    return failure(
       "La instancia privada de Cobalt necesita revisar su configuración de acceso.",
       "cobalt-auth",
     );
   if (/^error\.api\.content\.video\.(private|age|region)$/.test(code))
-    return new MediaError(
+    return failure(
       "Cobalt informa que el video requiere acceso o tiene restricciones.",
       "access-required",
     );
   if (code === "error.api.youtube.drm")
-    return new MediaError(
+    return failure(
       "El contenido tiene protección DRM y no se puede preparar.",
       "protected-content",
     );
-  return new MediaError(
+  return failure(
     "Cobalt no pudo obtener el audio de YouTube desde este servidor.",
     "source-unavailable",
   );

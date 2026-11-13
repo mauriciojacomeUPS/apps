@@ -17,6 +17,10 @@ services:
         value: "true"
       - key: ONDA_YOUTUBE_ENGINE
         value: cobalt
+      - key: ONDA_COBALT_YOUTUBE_CLIENT
+        value: ANDROID
+      - key: ONDA_RUN_DOWNLOAD_TESTS
+        value: "true"
       - key: ONDA_MAX_AUDIO_MB
         value: "32"
       - key: ONDA_MAX_PLAYLIST_MB

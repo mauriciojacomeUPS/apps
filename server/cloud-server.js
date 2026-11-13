@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { createMediaService, mediaJson } from "./media-service.js";
 import * as processing from "./media-processing.js";
+import { runDownloadChecks } from "./download-checks.js";
 
 const DEFAULT_ORIGIN = "https://mauriciojacomeups.github.io";
 const METHODS = "GET, POST, DELETE, OPTIONS";
@@ -10,6 +11,7 @@ const HEADERS = "Authorization, Content-Type, X-Onda-Client, X-Onda-Format, X-On
 const CLIENT = /^(?:[a-f0-9]{64}|[a-zA-Z0-9_-]{43})$/;
 const ARTIFACT = /^\/v1\/media\/jobs\/[a-f0-9-]{36}\/(?:result|tracks\/(?:0|[1-9][0-9]{0,4}))$/;
 const PROBE_REASONS = new Map([
+  ["timeout", "La prueba de YouTube agotó su tiempo. No confirma un bloqueo de acceso."],
   [
     "probe-timeout",
     "La prueba de YouTube agotó sus 90 segundos. No confirma un bloqueo de acceso.",
@@ -85,6 +87,11 @@ function cleanProbe(value) {
   };
   if (["yt-dlp", "cobalt"].includes(value?.engine)) result.engine = value.engine;
   if (
+    typeof value?.upstreamCode === "string" &&
+    /^error\.api\.[a-z0-9_.]{1,100}$/.test(value.upstreamCode)
+  )
+    result.upstreamCode = value.upstreamCode;
+  if (
     typeof value?.checkedAt === "string" &&
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.checkedAt) &&
     Number.isFinite(Date.parse(value.checkedAt))
@@ -114,7 +121,14 @@ function cleanProbe(value) {
 /** Start only the production API, never the Vite development server. */
 export async function startCloudServer(
   env = process.env,
-  { probe, logger = console, limits: extraLimits = {} } = {},
+  {
+    probe,
+    logger = console,
+    limits: extraLimits = {},
+    cobaltNetwork,
+    stopCobaltDiagnostics = () => {},
+    downloadRunner,
+  } = {},
 ) {
   const apiKey = String(env.ONDA_API_KEY || "");
   if (apiKey.length < 32 || apiKey.length > 512 || /[\r\n]/.test(apiKey))
@@ -155,6 +169,7 @@ export async function startCloudServer(
     status: env.ONDA_RUN_SOURCE_CHECK === "true" ? "checking" : "disabled",
   });
   const probeController = new AbortController();
+  let downloadChecks;
   const server = createServer(
     { maxHeaderSize: 8192, requestTimeout: 30_000 },
     async (request, response) => {
@@ -180,6 +195,7 @@ export async function startCloudServer(
           service: "onda-media",
           version: 1,
           youtubeEngine: engine,
+          downloadChecks,
           sourceCheck,
         });
       if (request.method === "OPTIONS") {
@@ -216,14 +232,14 @@ export async function startCloudServer(
       if (!allowed && !capabilityNavigation)
         return mediaJson(response, 403, { error: "Este origen no está autorizado." });
       if (
-        sourceCheck.status === "checking" &&
+        (sourceCheck.status === "checking" || downloadChecks?.status === "running") &&
         request.method === "POST" &&
         url.pathname === "/v1/media/jobs"
       ) {
         response.setHeader("Retry-After", "5");
         return mediaJson(response, 409, {
           error:
-            "El servidor está comprobando YouTube. Espera a que termine y vuelve a intentarlo.",
+            "El servidor está comprobando las descargas. Espera a que termine y vuelve a intentarlo.",
           code: "source-check",
         });
       }
@@ -248,7 +264,31 @@ export async function startCloudServer(
   let probePromise;
   if (env.ONDA_RUN_SOURCE_CHECK === "true") {
     probePromise = Promise.resolve()
-      .then(() => (probe || processing.runSourceProbe)?.(env, { signal: probeController.signal }))
+      .then(async () => {
+        if (env.ONDA_RUN_DOWNLOAD_TESTS !== "true")
+          return (probe || processing.runSourceProbe)?.(env, { signal: probeController.signal });
+        const result = await runDownloadChecks(env, {
+          signal: probeController.signal,
+          cobaltNetwork,
+          runner: downloadRunner,
+          onUpdate: (value) => {
+            downloadChecks = value;
+          },
+        });
+        const main = result.results.find(
+          (row) => row.provider === "youtube" && row.engine === engine,
+        );
+        return {
+          provider: "youtube",
+          engine,
+          status: main?.status === "passed" ? "passed" : "failed",
+          code: main?.code || "probe-failed",
+          upstreamCode: main?.upstreamCode,
+          bytes: main?.bytes,
+          elapsedMs: main?.elapsedMs,
+          checkedAt: result.checkedAt,
+        };
+      })
       .then((result) => {
         if (!probeController.signal.aborted) {
           sourceCheck = cleanProbe(result);
@@ -262,7 +302,10 @@ export async function startCloudServer(
             code: "probe-failed",
             checkedAt: new Date().toISOString(),
           });
-      });
+        if (downloadChecks?.status === "running")
+          downloadChecks = { ...downloadChecks, status: "failed" };
+      })
+      .finally(stopCobaltDiagnostics);
   }
   let closing;
   function close() {

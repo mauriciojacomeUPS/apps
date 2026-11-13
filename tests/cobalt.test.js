@@ -99,6 +99,11 @@ test("Cobalt configuration admits only a private loopback instance and never for
   assert.equal(env.API_PORT, "9123");
   assert.equal(env.API_URL, "http://127.0.0.1:9123/");
   assert.equal(env.HTTPS_PROXY, process.env.HTTPS_PROXY);
+  assert.equal(
+    cobaltEnvironment({ ONDA_COBALT_YOUTUBE_CLIENT: "ANDROID" }).CUSTOM_INNERTUBE_CLIENT,
+    "ANDROID",
+  );
+  assert.throws(() => cobaltEnvironment({ ONDA_COBALT_YOUTUBE_CLIENT: "unrecognized" }));
 });
 
 test("Cobalt restrictions use fixed errors and do not expose returned context", () => {
@@ -112,7 +117,12 @@ test("Cobalt restrictions use fixed errors and do not expose returned context", 
     const error = cobaltError({ error: { code: upstream, context: { token: key } } }, 400);
     assert.equal(error.code, code);
     assert.equal(error.message.includes(key), false);
+    assert.equal(error.upstreamCode, upstream);
   }
+  assert.equal(
+    cobaltError({ error: { code: "error.api.private/" + key } }, 400).upstreamCode,
+    undefined,
+  );
 });
 
 test(

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Cloud, KeyRound, Link2, RefreshCw } from "lucide-react";
+import DownloadTestReport from "./DownloadTestReport";
 export default function MediaServerSettings({
   connection,
   onSave,
@@ -8,6 +9,7 @@ export default function MediaServerSettings({
   error,
   probe,
   onRetry,
+  checks,
 }) {
   const [form, setForm] = useState(connection);
   const [failure, setFailure] = useState("");
@@ -133,6 +135,7 @@ export default function MediaServerSettings({
           </span>
         </p>
       )}
+      <DownloadTestReport report={checks} />
     </details>
   );
 }

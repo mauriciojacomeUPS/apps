@@ -35,7 +35,7 @@ async function start(base, client, url = "https://youtu.be/aaaaaaaaaaa") {
     body: JSON.stringify({ url, format: "m4a" }),
   });
 }
-async function fixtureServer({ limits = {}, failure = "", ...extra } = {}) {
+async function fixtureServer({ limits = {}, failure = "", archiveSingle = false, ...extra } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "onda-cloud-fixture-"));
   const executable = join(dir, "yt-dlp");
   const audio = resolve("public/audio/sunset.mp3");
@@ -45,6 +45,7 @@ async function fixtureServer({ limits = {}, failure = "", ...extra } = {}) {
     "#!/usr/bin/env node\n" +
       [
         'const fs=require("node:fs");const args=process.argv.slice(2);',
+        `if(${JSON.stringify(archiveSingle)}){if(args.includes("--dump-single-json")){console.log(JSON.stringify({_type:"video",formats:[{format_id:"mp3"}]}));process.exit(0);}if(args[args.indexOf("--use-extractors")+1]!==${JSON.stringify("archive\\.org")}||args[args.indexOf("--compat-options")+1]!=="no-certifi"){console.error("wrong extractor or trust store");process.exit(1);}}`,
         'if(args.includes("--dump-single-json")){console.log(JSON.stringify({title:"Test list",entries:[{id:"aaaaaaaaaaa",title:"One"},{id:"bbbbbbbbbbb",title:"Two"}]}));process.exit(0);}',
         'const id=new URL(args.at(-1)).searchParams.get("v");',
         "fs.appendFileSync(" + JSON.stringify(calls) + ', args.at(-1)+"\\n");',
@@ -98,6 +99,84 @@ test("cloud startup requires a private key and exact trusted origins", async () 
       startCloudServer({ ONDA_API_KEY: apiKey, PORT: "0", ONDA_ALLOWED_ORIGINS: origin + "/apps" }),
     /exact HTTPS origins/,
   );
+});
+
+test(
+  "Internet Archive single audio metadata produces a real M4A through the authenticated API",
+  { skip: requiresTools },
+  async () => {
+    const fixture = await fixtureServer({ archiveSingle: true });
+    try {
+      const response = await start(
+        fixture.base,
+        alice,
+        "https://archive.org/details/testmp3testfile",
+      );
+      assert.equal(response.status, 202);
+      const job = await ready(fixture.base, (await response.json()).id, alice);
+      assert.equal(job.state, "ready", JSON.stringify(job));
+      assert.equal(job.provider, "archive");
+      assert.equal(job.result.type, "audio/mp4");
+      const result = await fetch(
+        fixture.base + "/jobs/" + job.id + "/result?download_token=" + job.downloadToken,
+      );
+      assert.equal(result.status, 200);
+      assert.ok(
+        Buffer.from(await result.arrayBuffer())
+          .subarray(0, 40)
+          .includes(Buffer.from("ftyp")),
+      );
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+test("health reports bounded download tests while jobs wait, without a public test trigger", async () => {
+  let finish;
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const instance = await startCloudServer(
+    {
+      ONDA_API_KEY: apiKey,
+      PORT: "0",
+      HOST: "127.0.0.1",
+      ONDA_RUN_SOURCE_CHECK: "true",
+      ONDA_RUN_DOWNLOAD_TESTS: "true",
+    },
+    {
+      logger: quiet,
+      downloadRunner: async () => {
+        await gate;
+        return { bytes: 1234, type: "audio/mp4", sha256: "b".repeat(64), verifiedAudio: true };
+      },
+    },
+  );
+  const host = "http://127.0.0.1:" + instance.server.address().port;
+  try {
+    const initial = await (await fetch(host + "/healthz")).json();
+    assert.equal(initial.downloadChecks.status, "running");
+    assert.equal((await start(host + "/v1/media", alice)).status, 409);
+    finish();
+    let result;
+    for (let i = 0; i < 30; i++) {
+      result = await (await fetch(host + "/healthz")).json();
+      if (result.downloadChecks.status === "complete") break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.equal(result.downloadChecks.status, "complete");
+    assert.equal(result.downloadChecks.passed, 6);
+    assert.equal(result.sourceCheck.status, "passed");
+    assert.equal(JSON.stringify(result).includes(apiKey), false);
+    assert.equal(
+      (await fetch(host + "/healthz", { method: "POST", headers: options(alice).headers })).status,
+      404,
+    );
+  } finally {
+    finish();
+    await instance.close();
+  }
 });
 
 test(

@@ -3,10 +3,14 @@ import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { startCloudServer } from "./cloud-server.js";
 import { cobaltInfo, cobaltOrigin, youtubeEngine } from "./cobalt-client.js";
 
 export function cobaltEnvironment(env) {
+  const client = env.ONDA_COBALT_YOUTUBE_CLIENT || "IOS";
+  if (!["IOS", "ANDROID", "YTSTUDIO_ANDROID", "YTMUSIC_ANDROID"].includes(client))
+    throw new Error("El cliente de Cobalt no está admitido para las pruebas.");
   const allowed = [
     "PATH",
     "HOME",
@@ -38,10 +42,13 @@ export function cobaltEnvironment(env) {
     DURATION_LIMIT: "600",
     RATELIMIT_MAX: "30",
     FORCE_LOCAL_PROCESSING: "never",
+    CUSTOM_INNERTUBE_CLIENT: client,
   };
 }
 
 export async function startMediaRuntime(env = process.env, { signal, logger = console } = {}) {
+  const network = [];
+  const tracing = env.ONDA_RUN_DOWNLOAD_TESTS === "true";
   let child,
     cloud,
     fatal,
@@ -80,11 +87,36 @@ export async function startMediaRuntime(env = process.env, { signal, logger = co
       const entry = env.ONDA_COBALT_ENTRY || "/app/src/cobalt.js";
       await access(entry, constants.R_OK);
       signal?.throwIfAborted();
-      child = spawn(process.execPath, ["--max-old-space-size=192", entry], {
-        cwd: dirname(dirname(entry)),
-        env: cobaltEnvironment(env),
-        stdio: ["ignore", "inherit", "inherit"],
-      });
+      child = spawn(
+        process.execPath,
+        [
+          "--max-old-space-size=192",
+          ...(tracing
+            ? ["--import", fileURLToPath(new URL("./cobalt-network-observer.js", import.meta.url))]
+            : []),
+          entry,
+        ],
+        {
+          cwd: dirname(dirname(entry)),
+          env: cobaltEnvironment(env),
+          stdio: tracing
+            ? ["ignore", "inherit", "inherit", "ipc"]
+            : ["ignore", "inherit", "inherit"],
+        },
+      );
+      if (tracing)
+        child.on("message", (message) => {
+          if (message?.kind !== "onda-network") return;
+          const { sequence, origin, path, status, error } = message;
+          if (
+            !Number.isSafeInteger(sequence) ||
+            typeof origin !== "string" ||
+            typeof path !== "string"
+          )
+            return;
+          network.push({ sequence, origin, path, status, error });
+          if (network.length > 24) network.shift();
+        });
       child.once("error", (error) => {
         fatal = error;
         if (ready) void close(1);
@@ -110,7 +142,13 @@ export async function startMediaRuntime(env = process.env, { signal, logger = co
       logger.info?.("Cobalt " + info.version + " listo en el servicio privado.");
     }
     signal?.throwIfAborted();
-    cloud = await startCloudServer(env, { logger });
+    cloud = await startCloudServer(env, {
+      logger,
+      cobaltNetwork: () => network,
+      stopCobaltDiagnostics: () => {
+        if (child?.connected) child.send({ kind: "onda-stop-diagnostics" }, () => {});
+      },
+    });
     signal?.throwIfAborted();
     if (fatal) throw fatal;
     ready = true;

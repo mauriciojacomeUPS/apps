@@ -66,6 +66,8 @@ YouTube puede rechazar direcciones de centros de datos, pedir autenticación o l
 
 ## Fuentes y límites
 
+Para la fase de pruebas, consulta la [ronda de descargas reales](download-testing.md). Con `ONDA_RUN_DOWNLOAD_TESTS=true` y `ONDA_RUN_SOURCE_CHECK=true`, el arranque ejecuta la ronda completa y muestra sus resultados en Onda y en `/healthz.downloadChecks`. Al terminar la fase, desactiva `ONDA_RUN_DOWNLOAD_TESTS` para evitar repetirla tras cada despertar del servicio gratuito.
+
 El servicio admite enlaces públicos de YouTube, SoundCloud (pistas/listas), Bandcamp (pistas/álbumes), Vimeo e Internet Archive (`/details/…`). Se utilizan extractores específicos; no es un proxy para cualquier URL. Su disponibilidad real depende de cada enlace y del acceso que permita la fuente desde Render. Spotify se mantiene como importación de CSV y coincidencias con tus archivos locales, sin descarga del audio de Spotify.
 
 Render Free tiene recursos limitados y suspende el servicio tras un periodo sin uso. La primera conexión puede tardar alrededor de un minuto; si caduca, pulsa **Reintentar conexión**. No hay sondeos permanentes para mantenerlo despierto.
